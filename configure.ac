@@ -195,6 +195,17 @@ if test "$enable_watch8bit" = "yes"; then
   AC_DEFINE([WITH_WATCH8BIT], [1], [Enable 8 bit clean watch])
 fi
 
+AC_SUBST([WITH_COLORWATCH])
+AC_ARG_ENABLE([colorwatch],
+  AS_HELP_STRING([--enable-colorwatch], [enable watch to use color by default]),
+  [], [enable_colorwatch=no]
+)
+if test "$enable_colorwatch" = "yes"; then
+  AC_DEFINE([WITH_COLORWATCH], [1], [Enable color watch by default])
+fi
+
+
+
 AC_ARG_ENABLE([libselinux],
   AS_HELP_STRING([--enable-libselinux], [enable libselinux]),
   [], [enable_libselinux=no]
@@ -280,6 +291,13 @@ AS_IF([test "x$with_systemd" != "xno"], [
     [PKG_CHECK_MODULES([SYSTEMD], [libsystemd-login])]
   )
   AC_DEFINE(WITH_SYSTEMD, 1, [enable systemd support])
+
+  # The functions needed to replace utmp with logind are only available
+  # with systemd v254 or later.
+  old_LIBS="$LIBS"
+  LIBS="$LIBS $SYSTEMD_LIBS"
+  AC_CHECK_FUNCS([sd_session_get_leader])
+  LIBS="$old_LIBS"
 ])
 AM_CONDITIONAL([WITH_SYSTEMD], [test x$with_systemd != xno])
 
@@ -399,7 +417,7 @@ then
 fi
 AC_SUBST(DEJAGNU)
 
-AC_CHECK_FUNCS([__fpending alarm atexit dup2 gethostname getpagesize gettimeofday iswprint memchr memmove memset mkdir nl_langinfo putenv regcomp rpmatch select setlocale strcasecmp strchr strcspn strdup strerror strncasecmp strndup strpbrk strrchr strspn strstr strtol strtoul strverscmp utmpname wcwidth])
+AC_CHECK_FUNCS([__fpending alarm atexit dup2 gethostname getpagesize gettimeofday iswprint memchr memmove memset mkdir nl_langinfo putenv regcomp rpmatch select setlocale sigabbrev_np strcasecmp strchr strcspn strdup strerror strncasecmp strndup strpbrk strrchr strspn strstr strtol strtoul strverscmp utmpname wcwidth])
 
 AC_CONFIG_FILES([Makefile
                  local/Makefile
