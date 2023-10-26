@@ -36,6 +36,7 @@
 #include <errno.h>
 #include <getopt.h>
 #include <glob.h>
+#include <fnmatch.h>
 #include <libgen.h>
 #include <limits.h>
 #include <regex.h>
@@ -180,9 +181,9 @@ static SysctlSetting *setting_new(
     s = xmalloc(sizeof(SysctlSetting));
 
     *s = (SysctlSetting) {
-        .key = strdup(key),
+        .key = xstrdup(key),
         .path = path,
-        .value = value? strdup(value): NULL,
+        .value = value? xstrdup(value): NULL,
         .ignore_failure = ignore_failure,
         .glob_exclude = glob_exclude,
         .next = NULL,
@@ -213,6 +214,8 @@ static SysctlSetting *settinglist_findpath(const SettingList *l, const char *pat
     for (node=l->head; node != NULL; node = node->next) {
         if (strcmp(node->path, path) == 0)
             return node;
+        if (node->glob_exclude && fnmatch(node->path, path, 0) == 0)
+            return node;
     }
     return NULL;
 }
@@ -232,6 +235,7 @@ static void __attribute__ ((__noreturn__))
 	      _(" %s [options] [variable[=value] ...]\n"),
 		program_invocation_short_name);
 	fputs(USAGE_OPTIONS, out);
+	// TODO: other tools in src/ use one leading blank
 	fputs(_("  -a, --all            display all variables\n"), out);
 	fputs(_("  -A                   alias of -a\n"), out);
 	fputs(_("  -X                   alias of -a\n"), out);
@@ -633,6 +637,7 @@ static int WriteSetting(
  * -key = value                              ignore errors
  * key.pattern.*.with.glob = value           set keys that match glob
  * -key.pattern.exclude.with.glob            dont set this value
+ * -key.pattern.exclude.*.glob               dont set values for keys matching glob
  * key.pattern.override.with.glob = value    set this glob match to value
  *
  */

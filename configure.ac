@@ -120,9 +120,7 @@ then
   AC_SUBST([datadir])
   AC_SUBST([mandir])
   AC_SUBST([infodir])
- AC_DEFINE([USE_PROC_CTTY], [1], [Use /proc/$PID/ctty to determine controlling TTY])
-else
- AC_DEFINE([USE_PROC_CTTY], [0], [Use /proc/$PID/ctty to determine controlling TTY])
+  AC_DEFINE([USE_PROC_CTTY], [1], [Use /proc/$PID/ctty to determine controlling TTY])
 fi
 
 AM_GNU_GETTEXT_VERSION([0.14.1])
@@ -417,7 +415,7 @@ then
 fi
 AC_SUBST(DEJAGNU)
 
-AC_CHECK_FUNCS([__fpending alarm atexit dup2 gethostname getpagesize gettimeofday iswprint memchr memmove memset mkdir nl_langinfo putenv regcomp rpmatch select setlocale sigabbrev_np strcasecmp strchr strcspn strdup strerror strncasecmp strndup strpbrk strrchr strspn strstr strtol strtoul strverscmp utmpname wcwidth])
+AC_CHECK_FUNCS([__fpending alarm atexit dup2 clock_gettime gethostname getpagesize gettimeofday iswprint memchr memmove memset mkdir nl_langinfo putenv regcomp rpmatch select setlocale sigabbrev_np strcasecmp strchr strcspn strdup strerror strncasecmp strndup strpbrk strrchr strspn strstr strtol strtoul strverscmp utmpname wcwidth])
 
 AC_CONFIG_FILES([Makefile
                  local/Makefile
