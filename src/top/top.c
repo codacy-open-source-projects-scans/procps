@@ -557,8 +557,8 @@ static void bye_bye (const char *str) {
 #endif
    }
 
-   /* we'll only have a 'str' if called by error_exit() |
-      and parse_args(), never from a signal handler ... | */
+   /* we will only have the passed 'str' when called by |
+      error_exit() or parse_args(), and it may be empty | */
    if (str) {
       fputs(str, stderr);
       exit(EXIT_FAILURE);
@@ -1941,7 +1941,7 @@ static struct {
    {     3,     -1,  A_right,  PIDS_PRIORITY       },  // s_int    EU_PRI
    {     3,     -1,  A_right,  PIDS_NICE           },  // s_int    EU_NCE
    {     3,     -1,  A_right,  PIDS_NLWP           },  // s_int    EU_THD
-   {     0,     -1,  A_right,  PIDS_PROCESSOR      },  // s_int    EU_CPN
+   {     2,     -1,  A_right,  PIDS_PROCESSOR      },  // s_int    EU_CPN
    {     5,     -1,  A_right,  PIDS_TICS_ALL_DELTA },  // u_int    EU_CPU
    {     6,     -1,  A_right,  PIDS_TICS_ALL       },  // ull_int  EU_TME
    {     9,     -1,  A_right,  PIDS_TICS_ALL       },  // ull_int  EU_TM2
@@ -1981,7 +1981,7 @@ static struct {
    {     6,  SK_Kb,  A_right,  PIDS_VM_RSS_LOCKED  },  // ul_int   EU_RZL
    {     6,  SK_Kb,  A_right,  PIDS_VM_RSS_SHARED  },  // ul_int   EU_RZS
    {    -1,     -1,  A_left,   PIDS_CGNAME         },  // str      EU_CGN
-   {     0,     -1,  A_right,  PIDS_PROCESSOR_NODE },  // s_int    EU_NMA
+   {     2,     -1,  A_right,  PIDS_PROCESSOR_NODE },  // s_int    EU_NMA
    {     5,     -1,  A_right,  PIDS_ID_LOGIN       },  // s_int    EU_LID
    {    -1,     -1,  A_left,   PIDS_EXE            },  // str      EU_EXE
    {     6,  SK_Kb,  A_right,  PIDS_SMAP_RSS       },  // ul_int   EU_RSS
@@ -2001,8 +2001,10 @@ static struct {
    {     6,     -1,  A_right,  PIDS_UTILIZATION    },  // real     EU_CUU
    {     7,     -1,  A_right,  PIDS_UTILIZATION_C  },  // real     EU_CUC
    {    10,     -1,  A_right,  PIDS_NS_CGROUP      },  // ul_int   EU_NS7
-   {    10,     -1,  A_right,  PIDS_NS_TIME        }   // ul_int   EU_NS8
-#define eu_LAST        EU_NS8
+   {    10,     -1,  A_right,  PIDS_NS_TIME        },  // ul_int   EU_NS8
+   {     3,     -1,  A_left,   PIDS_SCHED_CLASSSTR },  // str      EU_CLS
+   {     8,     -1,  A_left,   PIDS_DOCKER_ID      }   // str      EU_DKR
+#define eu_LAST        EU_DKR
 // xtra Fieldstab 'pseudo pflag' entries for the newlib interface . . . . . . .
 #define eu_CMDLINE     eu_LAST +1
 #define eu_TICS_ALL_C  eu_LAST +2
@@ -2599,8 +2601,6 @@ static void zap_fieldstab (void) {
    char buf[8];
 
    if (!once) {
-      Fieldstab[EU_CPN].width = 1;
-      Fieldstab[EU_NMA].width = 2;
       Fieldstab[EU_PID].width = Fieldstab[EU_PPD].width
          = Fieldstab[EU_PGD].width = Fieldstab[EU_SID].width
          = Fieldstab[EU_TGD].width = Fieldstab[EU_TPG].width = 5;
@@ -2618,7 +2618,7 @@ static void zap_fieldstab (void) {
          = wtab[EU_WCH].watx = wtab[EU_NS1].watx = wtab[EU_NS2].watx
          = wtab[EU_NS3].watx = wtab[EU_NS4].watx = wtab[EU_NS5].watx
          = wtab[EU_NS6].watx = wtab[EU_NS7].watx = wtab[EU_NS8].watx
-         = wtab[EU_LXC].watx = wtab[EU_LID].watx
+         = wtab[EU_LXC].watx = wtab[EU_LID].watx = wtab[EU_DKR].watx
          = +1;
       /* establish translatable header 'column' requirements
          and ensure .width reflects the widest value */
@@ -2668,7 +2668,7 @@ static void zap_fieldstab (void) {
    }
 #else
    digits = snprintf(buf, sizeof(buf), "%d", Cpu_cnt);
-   if (1 < digits) {
+   if (2 < digits) {
       if (5 < digits) error_exit(N_txt(FAIL_widecpu_txt));
       Fieldstab[EU_CPN].width = digits;
    }
@@ -2683,8 +2683,8 @@ static void zap_fieldstab (void) {
          = Rc.fixed_widest ? 5 + Rc.fixed_widest : 5;
       Fieldstab[EU_UEN].width = Fieldstab[EU_URN].width
          = Fieldstab[EU_USN].width = Fieldstab[EU_GRP].width
-         = Rc.fixed_widest ? 8 + Rc.fixed_widest : 8;
-      Fieldstab[EU_TTY].width = Fieldstab[EU_LXC].width
+         = Fieldstab[EU_TTY].width = Fieldstab[EU_LXC].width
+         = Fieldstab[EU_DKR].width
          = Rc.fixed_widest ? 8 + Rc.fixed_widest : 8;
       Fieldstab[EU_WCH].width
          = Rc.fixed_widest ? 10 + Rc.fixed_widest : 10;
@@ -4077,8 +4077,10 @@ static const char *configs_file (FILE *fp, const char *name, float *delay) {
                return p;
             Rc.tics_scaled = 0;
          // fall through
-         case 'k':                          // current RCF_VERSION_ID
-         // fall through
+         case 'k':                          // this is release 4.0.2
+         // fall through                       ( transitioned to integer )
+         case 'l':                          // current RCF_VERSION_ID
+         // fall through                       ( added EU_CLS, EU_DKR  )
          default:
             if (mlen(w->rc.fieldscur) < EU_MAXPFLGS)
                return p;
@@ -6511,9 +6513,9 @@ numa_oops:
          for (i = 0; i < Cpu_cnt; i++) {
 #ifndef CORE_TYPE_NO
  #ifdef CORE_TYPE_LO
-            char ctab[] = { 'u', 'e', 'p' };
+            static char ctab[] = { 'u', 'e', 'p' };
  #else
-            char ctab[] = { 'u', 'E', 'P' };
+            static char ctab[] = { 'u', 'E', 'P' };
  #endif
             int cid = CPU_VAL(stat_ID, i), typ = CPU_VAL(stat_COR_TYP, i);
             char chr = Curwin->rc.core_types ? ctab[typ] : 'u' ;
@@ -6769,6 +6771,7 @@ static void summary_show (void) {
             , Thread_mode ? N_txt(WORD_threads_txt) : N_txt(WORD_process_txt)
             , PIDSmaxt, Pids_reap->counts->running
             , Pids_reap->counts->sleeping + Pids_reap->counts->other
+            , Pids_reap->counts->disk_sleep
             , Pids_reap->counts->stopped, Pids_reap->counts->zombied));
          Msg_row += 1;
       }
@@ -6797,6 +6800,7 @@ static void summary_show (void) {
          , Thread_mode ? N_txt(WORD_threads_txt) : N_txt(WORD_process_txt)
          , PIDSmaxt, Pids_reap->counts->running
          , Pids_reap->counts->sleeping + Pids_reap->counts->other
+         , Pids_reap->counts->disk_sleep
          , Pids_reap->counts->stopped, Pids_reap->counts->zombied));
       Msg_row += 1;
 
@@ -7031,7 +7035,12 @@ static const char *task_show (const WIN_t *q, int idx) {
          case EU_TM4:        // PIDS_TIME_ELAPSED
             cp = scale_tics(rSv(EU_TM4, real) * Hertz, W, Jn, TICS_AS_HOUR);
             break;
+   /* str, make_str (fixed width) */
+         case EU_CLS:        // PIDS_SCHED_CLASSSTR
+            cp = make_str(rSv(i, str), W, Js, AUTOX_NO);
+            break;
    /* str, make_str (all AUTOX yes) */
+         case EU_DKR:        // PIDS_DOCKER_ID
          case EU_LXC:        // PIDS_LXCNAME
          case EU_TTY:        // PIDS_TTY_NAME
          case EU_WCH:        // PIDS_WCHAN_NAME

@@ -199,7 +199,7 @@ static void build_two_nlstabs (void) {
 /* Translation Hint: maximum 'nTH' = 3 */
    Head_nlstab[EU_THD] = _("nTH");
    Desc_nlstab[EU_THD] = _("Number of Threads");
-/* Translation Hint: maximum 'P' = 1 */
+/* Translation Hint: maximum 'P' = 2 */
    Head_nlstab[EU_CPN] = _("P");
    Desc_nlstab[EU_CPN] = _("Last Used Cpu (SMP)");
 /* Translation Hint: maximum '%CPU' = 4 */
@@ -387,6 +387,12 @@ static void build_two_nlstabs (void) {
 /* Translation Hint: maximum 'nsTIME' = 10 + */
    Head_nlstab[EU_NS8] = _("nsTIME");
    Desc_nlstab[EU_NS8] = _("TIME namespace Inode");
+/* Translation Hint: maximum 'CLS' = 3 */
+   Head_nlstab[EU_CLS] = _("CLS");
+   Desc_nlstab[EU_CLS] = _("Schedule Class");
+/* Translation Hint: maximum 'Docker' = 8 + */
+   Head_nlstab[EU_DKR] = _("Docker");
+   Desc_nlstab[EU_DKR] = _("Docker container id");
 }
 
 
@@ -765,7 +771,7 @@ static void build_uniq_nlstab (void) {
    .  The next 5 items must each be translated as a single line.
    . */
    Uniq_nlstab[STATE_line_1_fmt] = _("%s:~3"
-      " %3u ~2total,~3 %3u ~2running,~3 %3u ~2sleeping,~3 %3u ~2stopped,~3 %3u ~2zombie~3\n");
+      " %u ~2total,~3 %u ~2running,~3 %u ~2sleep,~3 %u ~2d-sleep,~3 %u ~2stopped,~3 %u ~2zombie~3\n");
 
 /* Translation Hint: Only the following abbreviations need be translated
    .                 us = user, sy = system, ni = nice, id = idle, wa = wait,

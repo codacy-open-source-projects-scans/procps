@@ -44,6 +44,8 @@ enum pids_item {
     PIDS_CMD,               //      str        stat: comm or status: Name
     PIDS_CMDLINE,           //      str        cmdline
     PIDS_CMDLINE_V,         //     strv        cmdline, as *str[]
+    PIDS_DOCKER_ID,         //      str        derived from CGROUP '/docker-' (abbreviated hash)
+    PIDS_DOCKER_ID_64,      //      str        derived from CGROUP '/docker-' (full hash)
     PIDS_ENVIRON,           //      str        environ
     PIDS_ENVIRON_V,         //     strv        environ, as *str[]
     PIDS_EXE,               //      str        exe
@@ -116,6 +118,7 @@ enum pids_item {
     PIDS_RSS,               //   ul_int        stat: rss
     PIDS_RSS_RLIM,          //   ul_int        stat: rsslim
     PIDS_SCHED_CLASS,       //    s_int        stat: policy
+    PIDS_SCHED_CLASSSTR,    //      str        derived from policy, see ps(1) or top(1)
     PIDS_SD_MACH,           //      str        derived from PID/TID, see sd-login(3)
     PIDS_SD_OUID,           //      str         "
     PIDS_SD_SEAT,           //      str         "
@@ -228,7 +231,7 @@ struct pids_stack {
 
 struct pids_counts {
     int total;
-    int running, sleeping, stopped, zombied, other;
+    int running, sleeping, disk_sleep, stopped, zombied, other;
 };
 
 struct pids_fetch {

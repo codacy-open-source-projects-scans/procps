@@ -506,9 +506,15 @@ state percentages.
 
 Line 1 shows total\fB tasks\fR or\fB threads\fR, depending on the state
 of the Threads-mode toggle.
-That total is further classified as:
+That total is further classified according to task state as follows:
 .nf
-    running; sleeping; stopped; zombie
+    displayed       process status (`S')
+    ---------       --------------------
+    running         R
+    sleep           S + any remaining
+    d-sleep         D
+    stopped         T + t
+    zombie          Z
 .fi
 
 Line 2 shows \*(PU state percentages based on the interval since the
@@ -703,8 +709,8 @@ value means lower priority.
 The name of the control group to which a process belongs,
 or `\-' if not applicable for that process.
 
-This will typically be the last entry in the full list of control
-groups as shown under the next heading (CGROUPS).
+Available with cgroup v1 only, this will typically be the last entry in
+the full list of control groups as displayed under the CGROUPS heading.
 And as is true there, this field is also variable width.
 
 .TP 4
@@ -727,6 +733,19 @@ all remaining screen width (up to the maximum \*(WX characters).
 Even so, such variable width fields could still suffer truncation.
 \*(XT 5c. SCROLLING a Window for additional information on accessing
 any truncated data.
+
+.TP 4
+\fBCLS \*(Em Scheduling Class \fR
+The task's current scheduling policy which can be one of:
+    \fB-  \fR = not reported
+    \fBTS \fR = SCHED_OTHER
+    \fBFF \fR = SCHED_FIFO
+    \fBRR \fR = SCHED_RR
+    \fBB  \fR = SCHED_BATCH
+    \fBISO\fR = SCHED_ISO
+    \fBIDL\fR = SCHED_IDLE
+    \fBDLN\fR = SCHED_DEADLINE
+    \fB?  \fR = unknown value
 
 .TP 4
 \fBCODE \*(Em Code Size (KiB) \fR
@@ -767,6 +786,12 @@ Such memory may not yet be mapped to \*(MP (RES) but will always be
 included in the \*(MV (VIRT) amount.
 
 \*(XX.
+
+.TP 4
+\fBDocker\*(Em Docker Container ID \fR
+The identity (abbreviated hash) of the docker container within which a task
+is running.
+If a process is not running inside a container, a dash (`\-') will be shown.
 
 .TP 4
 \fBELAPSED \*(Em Elapsed Running Time\fR
@@ -1491,13 +1516,13 @@ This \*(CI can be used to alter the widths of the following fields:
 
 .nf
    \fI field  default    field  default    field   default \fR
-    GID       5       GROUP     8       WCHAN      10
-    LOGID     5       LXC       8       nsCGROUP   10
-    RUID      5       RUSER     8       nsIPC      10
-    SUID      5       SUSER     8       nsMNT      10
-    UID       5       TTY       8       nsNET      10
-                      USER      8       nsPID      10
-                                        nsTIME     10
+    GID       5       Docker    8       WCHAN      10
+    LOGID     5       GROUP     8       nsCGROUP   10
+    RUID      5       LXC       8       nsIPC      10
+    SUID      5       RUSER     8       nsMNT      10
+    UID       5       SUSER     8       nsNET      10
+                      TTY       8       nsPID      10
+                      USER      8       nsTIME     10
                                         nsUSER     10
                                         nsUTS      10
 .fi

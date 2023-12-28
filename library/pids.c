@@ -29,6 +29,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 #include <sys/stat.h>
@@ -99,6 +100,7 @@ struct pids_info {
     proc_t get_proc;                   // the proc_t used by procps_pids_get
     proc_t fetch_proc;                 // the proc_t used by pids_stacks_fetch
     SET_t *func_array;                 // extracted Item_table 'setsfunc' pointers
+    int containers_yes;                // need to call pids_containers_check
 };
 
 
@@ -113,6 +115,30 @@ static void freNAME(str) (struct pids_result *R) {
 static void freNAME(strv) (struct pids_result *R) {
     if (R->result.strv && *R->result.strv) free(*R->result.strv);
 }
+
+
+// ___ Special Suppott Funtion(s) |||||||||||||||||||||||||||||||||||||||||||||
+
+static const char *pids_sched_to_classstr (
+//  struct pids_info *,
+//  struct pids_result *r,
+    proc_t *p)
+{
+    switch (p->sched) {
+        case -1: return "-";   // not reported
+        case  0: return "TS";  // SCHED_OTHER SCHED_NORMAL
+        case  1: return "FF";  // SCHED_FIFO
+        case  2: return "RR";  // SCHED_RR
+        case  3: return "B";   // SCHED_BATCH
+        case  4: return "ISO"; // reserved for SCHED_ISO (Con Kolivas)
+        case  5: return "IDL"; // SCHED_IDLE
+        case  6: return "DLN"; // SCHED_DEADLINE
+        case  7: return "#7";  //
+        case  8: return "#8";  //
+        case  9: return "#9";  //
+    }
+    return "?";
+} // end: pids_sched_to_classstr
 
 
 // ___ Results 'Set' Support ||||||||||||||||||||||||||||||||||||||||||||||||||
@@ -163,6 +189,8 @@ VEC_set(CGROUP_V,                  cgroup_v)
 STR_set(CMD,                       cmd)
 STR_set(CMDLINE,                   cmdline)
 VEC_set(CMDLINE_V,                 cmdline_v)
+REG_set(DOCKER_ID,        str,     dockerid)
+REG_set(DOCKER_ID_64,     str,     dockerid_64)
 STR_set(ENVIRON,                   environ)
 VEC_set(ENVIRON_V,                 environ_v)
 STR_set(EXE,                       exe)
@@ -235,6 +263,7 @@ setDECL(PROCESSOR_NODE) { (void)I; R->result.s_int = numa_node_of_cpu(P->process
 REG_set(RSS,              ul_int,  rss)
 REG_set(RSS_RLIM,         ul_int,  rss_rlim)
 REG_set(SCHED_CLASS,      s_int,   sched)
+setDECL(SCHED_CLASSSTR) { (void)I; R->result.str = (char *)pids_sched_to_classstr(P); }
 STR_set(SD_MACH,                   sd_mach)
 STR_set(SD_OUID,                   sd_ouid)
 STR_set(SD_SEAT,                   sd_seat)
@@ -304,7 +333,7 @@ REG_set(VM_STACK,         ul_int,  vm_stack)
 REG_set(VM_SWAP,          ul_int,  vm_swap)
 setDECL(VM_USED)        { (void)I; R->result.ul_int = P->vm_swap + P->vm_rss; }
 REG_set(VSIZE_BYTES,      ul_int,  vsize)
-setDECL(WCHAN_NAME)     { freNAME(str)(R); if (!(R->result.str = strdup(lookup_wchan(P->tid)))) I->seterr = 1;; }
+setDECL(WCHAN_NAME)     { freNAME(str)(R); if (!(R->result.str = strdup(lookup_wchan(P->tid)))) I->seterr = 1; }
 
 #undef setDECL
 #undef CVT_set
@@ -403,8 +432,9 @@ srtDECL(noop) {
 #define x_ogroup   PROC_FILL_OGROUPS
 #define x_ouser    PROC_FILL_OUSERS
 #define x_supgrp   PROC_FILL_SUPGRP
-   // placed here so an 'f' prefix wouldn't make 'em first
+   // placed here so an 'f' prefix wouldn't put at/near 1st
 #define z_autogrp  PROC_FILLAUTOGRP
+#define z_docker   PROC_FILL_DOCKER
 
 typedef void (*FRE_t)(struct pids_result *);
 typedef int  (*QSR_t)(const void *, const void *, void *);
@@ -453,6 +483,8 @@ static struct {
     { RS(CMD),               f_either,   FF(str),   QS(str),       0,        TS(str)     },
     { RS(CMDLINE),           x_cmdline,  FF(str),   QS(str),       0,        TS(str)     },
     { RS(CMDLINE_V),         v_arg,      FF(strv),  QS(strv),      0,        TS(strv)    },
+    { RS(DOCKER_ID),         z_docker,   NULL,      QS(str),       0,        TS(str)     }, // freefunc NULL w/ cached string
+    { RS(DOCKER_ID_64),      z_docker,   NULL,      QS(str),       0,        TS(str)     }, // freefunc NULL w/ cached string
     { RS(ENVIRON),           x_environ,  FF(str),   QS(str),       0,        TS(str)     },
     { RS(ENVIRON_V),         v_env,      FF(strv),  QS(strv),      0,        TS(strv)    },
     { RS(EXE),               f_exe,      FF(str),   QS(str),       0,        TS(str)     },
@@ -525,6 +557,7 @@ static struct {
     { RS(RSS),               f_stat,     NULL,      QS(ul_int),    0,        TS(ul_int)  },
     { RS(RSS_RLIM),          f_stat,     NULL,      QS(ul_int),    0,        TS(ul_int)  },
     { RS(SCHED_CLASS),       f_stat,     NULL,      QS(s_int),     0,        TS(s_int)   },
+    { RS(SCHED_CLASSSTR),    f_stat,     NULL,      QS(str),       0,        TS(str)     }, // freefunc NULL w/ cached string
     { RS(SD_MACH),           f_systemd,  FF(str),   QS(str),       0,        TS(str)     },
     { RS(SD_OUID),           f_systemd,  FF(str),   QS(str),       0,        TS(str)     },
     { RS(SD_SEAT),           f_systemd,  FF(str),   QS(str),       0,        TS(str)     },
@@ -613,7 +646,7 @@ enum pids_item PIDS_logical_end = MAXTABLE(Item_table);
 #undef f_grp
 #undef f_io
 #undef f_login
-#undef f_lxc
+//#undef f_lxc                    // needed later
 #undef f_ns
 #undef f_oom
 #undef f_smaps
@@ -632,6 +665,7 @@ enum pids_item PIDS_logical_end = MAXTABLE(Item_table);
 #undef x_ouser
 #undef x_supgrp
 #undef z_autogrp
+//#undef z_docker                 // needed later
 
 
 // ___ History Support Private Functions ||||||||||||||||||||||||||||||||||||||
@@ -850,6 +884,33 @@ static void pids_unref_rpthash (
 #undef HHASH_SIZE
 
 
+// ___ Unique/Specialized Private Function(s) |||||||||||||||||||||||||||||||||
+
+        /*
+         * This routine periodically invokes the garbage collection services
+         * embedded in 'lxc' and 'docker' container extraction functions. It
+         * exists in case a library caller (like top) is kept running for an
+         * extended period of time (perhaps weeks or months). In such a case
+         * containers long since disappeared would otherwise be tracked thus
+         * consuming ever more memory while needlessly slowing the searches. */
+static void pids_containers_check (void) {
+ #define oneDAY (60 * 60 * 24)
+    static __thread time_t sav_secs;
+    time_t cur_secs = time(NULL);
+
+    if (!sav_secs)
+       sav_secs = cur_secs;
+    else if (oneDAY <= (cur_secs - sav_secs)) {
+        lxc_containers(NULL, NULL);
+        docker_containers(NULL, NULL);
+        sav_secs = cur_secs;
+    }
+    return;
+ #undef oneDAY
+} // pids_containers_check
+
+
+
 // ___ Standard Private Functions |||||||||||||||||||||||||||||||||||||||||||||
 
 static inline int pids_assign_results (
@@ -994,12 +1055,13 @@ static inline void pids_libflags_set (
     enum pids_item e;
     int i;
 
-    info->oldflags = info->history_yes = 0;
+    info->oldflags = info->history_yes = info->containers_yes = 0;
     for (i = 0; i < info->maxitems; i++) {
         if (((e = info->items[i])) >= PIDS_logical_end)
             break;
         info->oldflags |= Item_table[e].oldflags;
         info->history_yes |= Item_table[e].needhist;
+        info->containers_yes |= (Item_table[e].oldflags & (f_lxc | z_docker));
     }
     if (info->oldflags & f_either) {
         if (!(info->oldflags & (f_stat | f_status)))
@@ -1065,7 +1127,9 @@ static inline int pids_proc_tally (
         case 'R':
             ++counts->running;
             break;
-        case 'D':      // 'D' (disk sleep)
+        case 'D':
+            ++counts->disk_sleep;
+            break;
         case 'S':
             ++counts->sleeping;
             break;
@@ -1444,6 +1508,9 @@ fresh_start:
     }
     errno = 0;
 
+    if (info->containers_yes)
+        pids_containers_check();
+
     /* when in a namespace with proc mounted subset=pid,
        we will be restricted to process information only */
     info->boot_tics = 0;
@@ -1482,6 +1549,9 @@ PROCPS_EXPORT struct pids_fetch *procps_pids_reap (
     if (!info->maxitems)
         return NULL;
     errno = 0;
+
+    if (info->containers_yes)
+        pids_containers_check();
 
     if (!pids_oldproc_open(&info->fetch_PT, info->oldflags))
         return NULL;
@@ -1585,6 +1655,9 @@ PROCPS_EXPORT struct pids_fetch *procps_pids_select (
     if (!info->maxitems)
         return NULL;
     errno = 0;
+
+    if (info->containers_yes)
+        pids_containers_check();
 
     // this zero delimiter is really only needed with PIDS_SELECT_PID
     memcpy(ids, these, sizeof(unsigned) * numthese);

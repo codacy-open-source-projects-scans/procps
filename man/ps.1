@@ -923,7 +923,7 @@ p	pid	process ID
 P	ppid	parent process ID
 r	rss	resident set size
 R	resident	resident pages
-s	size	memory size in kilobytes
+s	size	memory size in kibibytes
 S	share	amount of shared pages
 t	tty	the device number of the controlling tty
 T	start_time	time process was started
@@ -1231,6 +1231,11 @@ The CPU utilization of a process in an extended "##.###" format.
 .BR cp ,
 .BR cuc ,
 .BR pcpu ).
+T}
+
+docker	DOCKER	T{
+The abbreviated id of the docker container within which a task is running.
+If a process is not running inside a container, a dash ('\-') will be shown.
 T}
 
 drs	DRS	T{
@@ -1598,7 +1603,7 @@ T}
 
 rss	RSS	T{
 resident set size, the non\-swapped physical memory that a task has used (in
-kilobytes).  (alias
+kibibytes).  (alias
 .BR rssize ", " rsz ).
 T}
 
