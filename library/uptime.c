@@ -48,20 +48,39 @@
 static __thread char upbuf[256];
 static __thread char shortbuf[256];
 
-static int count_users(void)
+/*
+ * users:
+ *
+ * Count the number of users on the system
+ * Strictly speaking not a proc FS function but used in many
+ * places.
+ *
+ * Returns: user count on success and <0 on failure
+ * On some failures with utmp, 0 may be returned too.
+ */ 
+PROCPS_EXPORT int procps_users(void)
 {
     int numuser = 0;
+#ifdef HAVE_UTMP_X
+    struct utmpx *ut;
+#else
     struct utmp *ut;
+#endif
 
 #if defined(WITH_SYSTEMD) || defined(WITH_ELOGIND)
     if (sd_booted() > 0)
       return sd_get_sessions(NULL);
 #endif
 
+#ifdef HAVE_UTMP_X
+    setutxent();
+    while ((ut = getutxent())) {
+#else
     setutent();
     while ((ut = getutent())) {
-    if ((ut->ut_type == USER_PROCESS) && (ut->ut_name[0] != '\0'))
-        numuser++;
+#endif
+        if ((ut->ut_type == USER_PROCESS) && (ut->ut_name[0] != '\0'))
+            numuser++;
     }
     endutent();
 
@@ -131,6 +150,9 @@ PROCPS_EXPORT char *procps_uptime_sprint(void)
     if (procps_uptime(&uptime_secs, &idle_secs) < 0)
         return upbuf;
 
+    if ((users = procps_users()) < 0)
+        return upbuf;
+
     updays  =   ((int) uptime_secs / (60*60*24));
     uphours =   ((int) uptime_secs / (60*60)) % 24;
     upminutes = ((int) uptime_secs / (60)) % 60;
@@ -146,7 +168,6 @@ PROCPS_EXPORT char *procps_uptime_sprint(void)
     else
         pos += sprintf(upbuf + pos, "%d min, ", upminutes);
 
-    users = count_users();
     procps_loadavg(&av1, &av5, &av15);
 
     if (users < 0)
