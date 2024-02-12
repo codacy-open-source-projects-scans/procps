@@ -17,7 +17,7 @@ hugetop \- report huge page information
 The
 .B hugetop
 command reports the huge page information of system and processes. It displays
-a summary of the system huge page status. For each process that has a
+a summary of the system huge page status. For each process that has at
 least one huge page, the number of private and shared pages, along with
 the process PID and command name are displayed.
 .SH OPTIONS
@@ -31,8 +31,14 @@ refreshes the display every three seconds.  To exit the program, hit
 .BR q .
 This cannot be combined with the \fB-o\fR option.
 .TP
+\fB\-n\fR, \fB\-\-numa\fR
+Display per NUMA node huge page information.
+.TP
 \fB\-o\fR, \fB\-\-once\fR
 Display the output once and then exit.
+.TP
+\fB\-H\fR, \fB\-\-human\fR
+Display human-readable output.
 .TP
 \fB\-h\fR, \fB\-\-help\fR
 Display help text and exit.
