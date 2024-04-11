@@ -3871,7 +3871,7 @@ static int cfg_xform (WIN_t *q, char *flds, const char *defs) {
         /*
          * A configs_file *Helper* function responsible for reading
          * and validating a configuration file's 'Inspection' entries */
-static int config_insp (FILE *fp, char *buf, size_t size) {
+static void config_insp (FILE *fp, char *buf, size_t size) {
    int i;
 
    // we'll start off with a 'potential' blank or empty line
@@ -3950,23 +3950,23 @@ static int config_insp (FILE *fp, char *buf, size_t size) {
     #undef mkS
    }
 #endif
-   return 0;
+   return;
 } // end: config_insp
 
 
         /*
          * A configs_file *Helper* function responsible for reading
          * and validating a configuration file's 'Other Filter' entries */
-static int config_osel (FILE *fp, char *buf, size_t size) {
+static void config_osel (FILE *fp, char *buf, size_t size) {
    int i, ch, tot, wno, begun;
    char *p;
 
    for (begun = 0;;) {
-      if (!fgets(buf, size, fp)) return 0;
+      if (!fgets(buf, size, fp)) return;
       if (buf[0] == '\n') continue;
       // whoa, must be an 'inspect' entry
       if (!begun && !strstr(buf, Osel_delim_1_txt))
-         return 0;
+         return;
       // ok, we're now beginning
       if (!begun && strstr(buf, Osel_delim_1_txt)) {
          begun = 1;
@@ -3982,7 +3982,7 @@ static int config_osel (FILE *fp, char *buf, size_t size) {
       if (tot < 0) goto end_oops;
 
       for (i = 0; i < tot; i++) {
-         if (!fgets(buf, size, fp)) return 1;
+         if (!fgets(buf, size, fp)) return;
          if (1 > sscanf(buf, Osel_filterI_fmt, &ch)) goto end_oops;
          if ((p = strchr(buf, '\n'))) *p = '\0';
          if (!(p = strstr(buf, OSEL_FILTER))) goto end_oops;
@@ -3991,13 +3991,114 @@ static int config_osel (FILE *fp, char *buf, size_t size) {
       }
    }
    // let's prime that buf for the next guy...
+   buf[0] = '\0';
    fgets(buf, size, fp);
-   return 0;
+   return;
 
 end_oops:
    Rc_questions = 1;
-   return 1;
+   return;
 } // end: config_osel
+
+
+        /*
+         * A configs_file *Helper* function responsible for reading
+         * and validating a single window's portion of the rcfile */
+static int config_wins (FILE *fp, char *buf, int wix) {
+   static const char *def_flds[] = { DEF_FORMER, JOB_FORMER, MEM_FORMER, USR_FORMER };
+   WIN_t *w =  &Winstk[wix];
+   int x;
+
+   if (1 != fscanf(fp, "%3s\tfieldscur=", w->rc.winname))
+      return 0;
+   if (Rc.id < RCF_XFORMED_ID)
+      fscanf(fp, "%s\n", buf );
+   else {
+      for (x = 0; ; x++)
+         if (1 != fscanf(fp, "%d", &w->rc.fieldscur[x]))
+            break;
+   }
+
+   // be tolerant of missing release 3.3.10 graph modes additions
+   if (3 > fscanf(fp, "\twinflags=%d, sortindx=%d, maxtasks=%d, graph_cpus=%d, graph_mems=%d"
+                      ", double_up=%d, combine_cpus=%d, core_types=%d\n"
+      , &w->rc.winflags, &w->rc.sortindx, &w->rc.maxtasks, &w->rc.graph_cpus, &w->rc.graph_mems
+      , &w->rc.double_up, &w->rc.combine_cpus, &w->rc.core_types))
+         return 0;
+   if (w->rc.sortindx < 0 || w->rc.sortindx >= EU_MAXPFLGS)
+      return 0;
+   if (w->rc.maxtasks < 0)
+      return 0;
+   if (w->rc.graph_cpus < 0 || w->rc.graph_cpus > 2)
+      return 0;
+   if (w->rc.graph_mems < 0 || w->rc.graph_mems > 2)
+      return 0;
+   if (w->rc.double_up < 0 || w->rc.double_up >= ADJOIN_limit)
+      return 0;
+   // can't check upper bounds until Cpu_cnt is known
+   if (w->rc.combine_cpus < 0)
+      return 0;
+   if (w->rc.core_types < 0 || w->rc.core_types > E_CORES_ONLY)
+      return 0;
+
+   // 4 colors through release 4.0.4, 5 colors after ...
+   if (4 > fscanf(fp, "\tsummclr=%d, msgsclr=%d, headclr=%d, taskclr=%d, task_xy=%d\n"
+      , &w->rc.summclr, &w->rc.msgsclr, &w->rc.headclr, &w->rc.taskclr, &w->rc.task_xy))
+         return 0;
+   // would prefer to use 'max_colors', but it isn't available yet...
+   if (w->rc.summclr < -1 || w->rc.summclr > 255) return 0;
+   if (w->rc.msgsclr < -1 || w->rc.msgsclr > 255) return 0;
+   if (w->rc.headclr < -1 || w->rc.headclr > 255) return 0;
+   if (w->rc.taskclr < -1 || w->rc.taskclr > 255) return 0;
+   if (w->rc.task_xy < -1 || w->rc.task_xy > 255) return 0;
+
+   switch (Rc.id) {
+      case 'a':                          // 3.2.8 (former procps)
+      // fall through
+      case 'f':                          // 3.3.0 thru 3.3.3 (ng)
+         SETw(w, Show_JRNUMS);
+      // fall through
+      case 'g':                          // from 3.3.4 thru 3.3.8
+         if (Rc.id > 'a') scat(buf, RCF_PLUS_H);
+      // fall through
+      case 'h':                          // this is release 3.3.9
+         w->rc.graph_cpus = w->rc.graph_mems = 0;
+         // these next 2 are really global, but best documented here
+         Rc.summ_mscale = Rc.task_mscale = SK_Kb;
+      // fall through
+      case 'i':                          // from 3.3.10 thru 3.3.16
+         if (Rc.id > 'a') scat(buf, RCF_PLUS_J);
+         w->rc.double_up = w->rc.combine_cpus = 0;
+      // fall through
+      case 'j':                          // this is release 3.3.17
+         if (cfg_xform(w, buf, def_flds[wix]))
+            return 0;
+         Rc.tics_scaled = 0;
+      // fall through
+      case 'k':                          // releases 4.0.1 thru 4.0.4
+      // fall through                       ( transitioned to integer )
+      case 'l':                          // no release, development only
+         w->rc.task_xy = w->rc.taskclr;
+      // fall through
+      case 'm':                          // current RCF_VERSION_ID
+      // fall through                       ( added rc.task_xy )
+      default:
+         if (mlen(w->rc.fieldscur) < EU_MAXPFLGS)
+            return 0;
+         for (x = 0; x < EU_MAXPFLGS; x++) {
+            FLG_t f = FLDget(w, x);
+            if (f >= EU_MAXPFLGS || f < 0)
+               return 0;
+         }
+         break;
+   }
+   // ensure there's been no manual alteration of fieldscur
+   for (x = 0 ; x < EU_MAXPFLGS; x++) {
+      if (&w->rc.fieldscur[x] != msch(w->rc.fieldscur, w->rc.fieldscur[x], EU_MAXPFLGS))
+         return 0;
+   }
+   return 1;
+} // end: config_wins
 
 
         /*
@@ -4005,7 +4106,7 @@ end_oops:
          * a configuration file (personal or system-wide default) */
 static const char *configs_file (FILE *fp, const char *name, float *delay) {
    char fbuf[LRGBUFSIZ];
-   int i, n, tmp_whole, tmp_fract;
+   int i, tmp_whole, tmp_fract;
    const char *p = NULL;
 
    p = fmtmk(N_fmt(RC_bad_files_fmt), name);
@@ -4032,101 +4133,9 @@ static const char *configs_file (FILE *fp, const char *name, float *delay) {
    // this may be ugly, but it keeps us locale independent...
    *delay = (float)tmp_whole + (float)tmp_fract / 1000;
 
-   for (i = 0 ; i < GROUPSMAX; i++) {
-      static const char *def_flds[] = { DEF_FORMER, JOB_FORMER, MEM_FORMER, USR_FORMER };
-      int j, x;
-      WIN_t *w = &Winstk[i];
-      p = fmtmk(N_fmt(RC_bad_entry_fmt), i+1, name);
-
-      if (1 != fscanf(fp, "%3s\tfieldscur=", w->rc.winname))
-         return p;
-      if (Rc.id < RCF_XFORMED_ID)
-         fscanf(fp, "%s\n", fbuf);
-      else {
-         for (j = 0; ; j++)
-            if (1 != fscanf(fp, "%d", &w->rc.fieldscur[j]))
-               break;
-      }
-
-      // be tolerant of missing release 3.3.10 graph modes additions
-      if (3 > fscanf(fp, "\twinflags=%d, sortindx=%d, maxtasks=%d, graph_cpus=%d, graph_mems=%d"
-                         ", double_up=%d, combine_cpus=%d, core_types=%d\n"
-         , &w->rc.winflags, &w->rc.sortindx, &w->rc.maxtasks, &w->rc.graph_cpus, &w->rc.graph_mems
-         , &w->rc.double_up, &w->rc.combine_cpus, &w->rc.core_types))
-            return p;
-      if (w->rc.sortindx < 0 || w->rc.sortindx >= EU_MAXPFLGS)
-         return p;
-      if (w->rc.maxtasks < 0)
-         return p;
-      if (w->rc.graph_cpus < 0 || w->rc.graph_cpus > 2)
-         return p;
-      if (w->rc.graph_mems < 0 || w->rc.graph_mems > 2)
-         return p;
-      if (w->rc.double_up < 0 || w->rc.double_up >= ADJOIN_limit)
-         return p;
-      // can't check upper bounds until Cpu_cnt is known
-      if (w->rc.combine_cpus < 0)
-         return p;
-      if (w->rc.core_types < 0 || w->rc.core_types > E_CORES_ONLY)
-         return p;
-
-      // 4 colors through release 4.0.4, 5 colors after ...
-      if (4 > fscanf(fp, "\tsummclr=%d, msgsclr=%d, headclr=%d, taskclr=%d, task_xy=%d\n"
-         , &w->rc.summclr, &w->rc.msgsclr, &w->rc.headclr, &w->rc.taskclr, &w->rc.task_xy))
-            return p;
-      // would prefer to use 'max_colors', but it isn't available yet...
-      if (w->rc.summclr < -1 || w->rc.summclr > 255) return p;
-      if (w->rc.msgsclr < -1 || w->rc.msgsclr > 255) return p;
-      if (w->rc.headclr < -1 || w->rc.headclr > 255) return p;
-      if (w->rc.taskclr < -1 || w->rc.taskclr > 255) return p;
-      if (w->rc.task_xy < -1 || w->rc.task_xy > 255) return p;
-
-      switch (Rc.id) {
-         case 'a':                          // 3.2.8 (former procps)
-         // fall through
-         case 'f':                          // 3.3.0 thru 3.3.3 (ng)
-            SETw(w, Show_JRNUMS);
-         // fall through
-         case 'g':                          // from 3.3.4 thru 3.3.8
-            if (Rc.id > 'a') scat(fbuf, RCF_PLUS_H);
-         // fall through
-         case 'h':                          // this is release 3.3.9
-            w->rc.graph_cpus = w->rc.graph_mems = 0;
-            // these next 2 are really global, but best documented here
-            Rc.summ_mscale = Rc.task_mscale = SK_Kb;
-         // fall through
-         case 'i':                          // from 3.3.10 thru 3.3.16
-            if (Rc.id > 'a') scat(fbuf, RCF_PLUS_J);
-            w->rc.double_up = w->rc.combine_cpus = 0;
-         // fall through
-         case 'j':                          // this is release 3.3.17
-            if (cfg_xform(w, fbuf, def_flds[i]))
-               return p;
-            Rc.tics_scaled = 0;
-         // fall through
-         case 'k':                          // releases 4.0.1 thru 4.0.4
-         // fall through                       ( transitioned to integer )
-         case 'l':                          // no release, development only
-            w->rc.task_xy = w->rc.taskclr;
-         // fall through
-         case 'm':                          // current RCF_VERSION_ID
-         // fall through                       ( added rc.task_xy )
-         default:
-            if (mlen(w->rc.fieldscur) < EU_MAXPFLGS)
-               return p;
-            for (x = 0; x < EU_MAXPFLGS; x++) {
-               FLG_t f = FLDget(w, x);
-               if (f >= EU_MAXPFLGS || f < 0)
-                  return p;
-            }
-            break;
-      }
-      // ensure there's been no manual alteration of fieldscur
-      for (n = 0 ; n < EU_MAXPFLGS; n++) {
-         if (&w->rc.fieldscur[n] != msch(w->rc.fieldscur, w->rc.fieldscur[n], EU_MAXPFLGS))
-            return p;
-      }
-   } // end: for (GROUPSMAX)
+   for (i = 0 ; i < GROUPSMAX; i++)
+      if (!config_wins(fp, fbuf, i))
+         return fmtmk(N_fmt(RC_bad_entry_fmt), i+1, name);
 
    // any new addition(s) last, for older rcfiles compatibility...
    // ( and ensure we're beginning a new line )
