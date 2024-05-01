@@ -48,7 +48,7 @@
 
 /* ------------------------------------------------------------------------- +
    this provision just does what its name sugggests - it will create several |
-   E-Core cpus for testing that STAT_TIC_ID_CORE & STAT_TIC_TYPE_CORE stuff! |*/
+   E-Core cpus for testing that STAT_TIC_ID_CORE & STAT_TIC_TYPE_CORE stuff! | */
 // #define PRETEND_E_CORES //----------------------------------------------- |
 // ------------------------------------------------------------------------- +
 
@@ -479,8 +479,8 @@ static void stat_cores_check (
     core = info->cores;
     while (core) {
         core->type = P_CORE;
-        if (core->thread_1 > ECORE_BEGIN
-        || (core->thread_2 > ECORE_BEGIN))
+        if (core->thread_1 >= ECORE_BEGIN
+        || (core->thread_2 >= ECORE_BEGIN))
             core->type = E_CORE;
         core = core->next;
     }
@@ -1425,7 +1425,6 @@ PROCPS_EXPORT struct stat_result *xtra_stat_val (
         int relative_enum,
         const char *typestr,
         const struct stat_stack *stack,
-        struct stat_info *info,
         const char *file,
         int lineno)
 {
@@ -1445,5 +1444,4 @@ PROCPS_EXPORT struct stat_result *xtra_stat_val (
         fprintf(stderr, "%s line %d: was %s, expected %s\n", file, lineno, typestr, str);
     }
     return &stack->head[relative_enum];
-    (void)info;
 } // end: xtra_stat_val

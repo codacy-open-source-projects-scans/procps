@@ -59,7 +59,7 @@ static __thread char shortbuf[UPTIME_BUFLEN];
  *
  * Returns: user count on success and <0 on failure
  * On some failures with utmp, 0 may be returned too.
- */ 
+ */
 PROCPS_EXPORT int procps_users(void)
 {
     int numuser = 0;
@@ -168,7 +168,7 @@ PROCPS_EXPORT int procps_container_uptime(
        return -1;
 
     boot_time = (tp.tv_sec + tp.tv_nsec * 1.0e-9);
-    start_time = PIDS_VAL(0, real, (pids_fetch->stacks[0]), info);
+    start_time = PIDS_VAL(0, real, (pids_fetch->stacks[0]));
 
     if (boot_time > start_time)
         *uptime_secs = boot_time - start_time;
@@ -287,7 +287,7 @@ static int snprint_uptime_only(
  * procps_uptime_snprint():
  *
  * print the standard formats of uptime into the buffer str up to
- * the given length 
+ * the given length
  *
  * @str: destination buffer
  * @size: length of destination buffer
