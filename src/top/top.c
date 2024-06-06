@@ -2661,7 +2661,7 @@ static void zap_fieldstab (void) {
       if (Cpu_cnt > 1000) {
          if (Cpu_pmax > 9999999.0) Cpu_pmax = 9999999.0;
       } else if (Cpu_cnt > 100) {
-         if (Cpu_cnt > 999999.0) Cpu_pmax = 999999.0;
+         if (Cpu_pmax > 999999.0) Cpu_pmax = 999999.0;
       } else if (Cpu_cnt > 10) {
          if (Cpu_pmax > 99999.0) Cpu_pmax = 99999.0;
       } else {
@@ -4258,6 +4258,8 @@ system_default:
          p = configs_file(fp, SYS_RCDEFAULTS, &tmp_delay);
          fclose(fp);
          if (p) goto default_or_error;
+         // as this file ages, suppress the compatibility warning ...
+         Rc_compatibilty = 0;
       }
    }
 
