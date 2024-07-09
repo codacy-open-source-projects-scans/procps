@@ -1,6 +1,6 @@
 /* top.h - Header file:         show Linux processes */
 /*
- * Copyright © 2002-2023 Jim Warner <james.warner@comcast.net
+ * Copyright © 2002-2024 Jim Warner <james.warner@comcast.net
  *
  * This file may be used subject to the terms and conditions of the
  * GNU Library General Public License Version 2, or any later version
@@ -180,6 +180,7 @@ char *strcasestr(const char *haystack, const char *needle);
 #define kbd_INS    138
 #define kbd_DEL    139
 #define kbd_BTAB   140
+#define kbd_CtrlA  '\001'
 #define kbd_CtrlE  '\005'
 #define kbd_CtrlG  '\007'
 #define kbd_CtrlI  '\011'
@@ -304,10 +305,10 @@ typedef          long long SIC_t;
 #else
 #define DEF_WINFLGS ( View_LOADAV | View_STATES | View_MEMORY | Show_CMDLIN \
    | Show_COLORS | Show_FOREST | Show_HIROWS | Show_IDLEPS | Show_JRNUMS | Show_TASKON \
-   | Qsrt_NORMAL )
+   | Show_HIBOLD | Qsrt_NORMAL )
 #define DEF_GRAPHS2  2, 2
 #define DEF_SCALES2  SK_Gb, SK_Mb
-#define ALT_WINFLGS (DEF_WINFLGS | Show_HIBOLD) & ~Show_FOREST
+#define ALT_WINFLGS DEF_WINFLGS & ~Show_FOREST
 #define ALT_GRAPHS2  1, 1
 #endif
 

@@ -1,6 +1,6 @@
 /* top.c - Source file:         show Linux processes */
 /*
- * Copyright © 2002-2023 Jim Warner <james.warner@comcast.net
+ * Copyright © 2002-2024 Jim Warner <james.warner@comcast.net
  *
  * This file may be used subject to the terms and conditions of the
  * GNU Library General Public License Version 2, or any later version
@@ -120,12 +120,12 @@ static int   Screen_cols, Screen_rows, Max_lines;
 #define      BOT_SEP_SPC  ' '
         // 1 for horizontal separator
 #define      BOT_RSVD  1
-#define      BOT_KEEP  Bot_show_func = NULL
-#define      BOT_TOSS  do { Bot_show_func = NULL; Bot_item[0] = BOT_DELIMIT; \
-                Bot_task = Bot_rsvd = Bot_what = 0; \
-                Bot_indx = BOT_UNFOCUS; \
-                } while(0)
-static int   Bot_task,
+#define      BOT_KEEP  { Bot_new = 0; }
+#define      BOT_TOSS  { Bot_new = Bot_task = Bot_what = Bot_rsvd = 0; \
+                Bot_item[0] = BOT_DELIMIT; \
+                Bot_indx = BOT_UNFOCUS; }
+static int   Bot_new,
+             Bot_task,
              Bot_what,
              Bot_rsvd,
              Bot_indx = BOT_UNFOCUS,
@@ -135,7 +135,6 @@ static char  Bot_sep,
              Bot_buf[BOTBUFSIZ];       // the 'environ' can be huge
 typedef int(*BOT_f)(const void *, const void *);
 static BOT_f Bot_focus_func;
-static void(*Bot_show_func)(void);
 
         /* This is really the number of lines needed to display the summary
            information (0 - nn), but is used as the relative row where we
@@ -286,7 +285,6 @@ static enum stat_item Stat_items[] = {
    STAT_TIC_DELTA_NICE,     STAT_TIC_DELTA_IDLE,
    STAT_TIC_DELTA_IOWAIT,   STAT_TIC_DELTA_IRQ,
    STAT_TIC_DELTA_SOFTIRQ,  STAT_TIC_DELTA_STOLEN,
-   STAT_TIC_DELTA_GUEST,    STAT_TIC_DELTA_GUEST_NICE,
    STAT_TIC_SUM_DELTA_USER, STAT_TIC_SUM_DELTA_SYSTEM,
 #ifdef CORE_TYPE_NO
    STAT_TIC_SUM_DELTA_TOTAL };
@@ -299,7 +297,6 @@ enum Rel_statitems {
    stat_NI, stat_IL,
    stat_IO, stat_IR,
    stat_SI, stat_ST,
-   stat_GU, stat_GN,
    stat_SUM_USR, stat_SUM_SYS,
 #ifdef CORE_TYPE_NO
    stat_SUM_TOT };
@@ -2032,20 +2029,22 @@ static struct {
 #define eu_CMDLINE     eu_LAST +1
 #define eu_TICS_ALL_C  eu_LAST +2
 #define eu_ID_FUID     eu_LAST +3
-#define eu_CMDLINE_V   eu_LAST +4
-#define eu_ENVIRON_V   eu_LAST +5
-#define eu_TREE_HID    eu_LAST +6
-#define eu_TREE_LVL    eu_LAST +7
-#define eu_TREE_ADD    eu_LAST +8
+#define eu_CAPABILITY  eu_LAST +4
+#define eu_CMDLINE_V   eu_LAST +5
+#define eu_ENVIRON_V   eu_LAST +6
+#define eu_TREE_HID    eu_LAST +7
+#define eu_TREE_LVL    eu_LAST +8
+#define eu_TREE_ADD    eu_LAST +9
 #define eu_RESET       eu_TREE_HID       // demarcation for reset to zero (PIDS_extra)
-   , {  -1, -1, -1,  PIDS_CMDLINE     }  // str      ( if Show_CMDLIN, eu_CMDLINE    )
-   , {  -1, -1, -1,  PIDS_TICS_ALL_C  }  // ull_int  ( if Show_CTIMES, eu_TICS_ALL_C )
-   , {  -1, -1, -1,  PIDS_ID_FUID     }  // u_int    ( if a usrseltyp, eu_ID_FUID    )
-   , {  -1, -1, -1,  PIDS_CMDLINE_V   }  // strv     ( if Ctrlk,       eu_CMDLINE_V  )
-   , {  -1, -1, -1,  PIDS_ENVIRON_V   }  // strv     ( if CtrlN,       eu_ENVIRON_V  )
-   , {  -1, -1, -1,  PIDS_extra       }  // s_ch     ( if Show_FOREST, eu_TREE_HID   )
-   , {  -1, -1, -1,  PIDS_extra       }  // s_int    ( if Show_FOREST, eu_TREE_LVL   )
-   , {  -1, -1, -1,  PIDS_extra       }  // s_int    ( if Show_FOREST, eu_TREE_ADD   )
+   , {  -1, -1, -1,  PIDS_CMDLINE        }  // str      ( if Show_CMDLIN, eu_CMDLINE    )
+   , {  -1, -1, -1,  PIDS_TICS_ALL_C     }  // ull_int  ( if Show_CTIMES, eu_TICS_ALL_C )
+   , {  -1, -1, -1,  PIDS_ID_FUID        }  // u_int    ( if a usrseltyp, eu_ID_FUID    )
+   , {  -1, -1, -1,  PIDS_CAPS_PERMITTED }  // str      ( if kbd_CtrlA,   eu_CAPABILITY )
+   , {  -1, -1, -1,  PIDS_CMDLINE_V      }  // strv     ( if kbd_CtrlK,   eu_CMDLINE_V  )
+   , {  -1, -1, -1,  PIDS_ENVIRON_V      }  // strv     ( if kbd_CtrlN,   eu_ENVIRON_V  )
+   , {  -1, -1, -1,  PIDS_extra          }  // s_ch     ( if Show_FOREST, eu_TREE_HID   )
+   , {  -1, -1, -1,  PIDS_extra          }  // s_int    ( if Show_FOREST, eu_TREE_LVL   )
+   , {  -1, -1, -1,  PIDS_extra          }  // s_int    ( if Show_FOREST, eu_TREE_ADD   )
  #undef A_left
  #undef A_right
 };
@@ -2271,7 +2270,7 @@ static void build_headers (void) {
          if (EU_CMD == f) ckCMDS(w);
          else ckITEM(f);
 
-         // lastly, accommodate any special non-display 'tagged' needs...
+         // lastly, accommodate any special 'bottom' window needs ...
          i = 0;
          while (Bot_item[i] > BOT_DELIMIT) {
             ckITEM(Bot_item[i]);
@@ -5293,6 +5292,9 @@ static void *bot_item_hlp (struct pids_stack *p) {
       case eu_CMDLINE_V:
       case eu_ENVIRON_V:
          return p->head[Bot_item[0]].result.strv;
+      case eu_CAPABILITY:
+         procps_capmask_names(buf, sizeof(buf), PID_VAL(eu_CAPABILITY, str, p));
+         return buf;
       default:
          return p->head[Bot_item[0]].result.str;
    }
@@ -5356,11 +5358,11 @@ static void bot_item_toggle (int what, const char *head, char sep) {
             Bot_focus_func = (BOT_f)bot_focus_str;
             break;
       }
-      Bot_sep = sep;
+      Bot_new  = 1;
+      Bot_sep  = sep;
       Bot_what = what;
       Bot_indx = BOT_UNFOCUS;
       Bot_head = (char *)head;
-      Bot_show_func = bot_item_show;
       Bot_task = PID_VAL(EU_PID, s_int, Curwin->ppt[Curwin->begtask]);
    }
 } // end: bot_item_toggle
@@ -5726,6 +5728,9 @@ static void keys_global (int ch) {
          break;
       case '0':
          Rc.zero_suppress = !Rc.zero_suppress;
+         break;
+      case kbd_CtrlA:
+         bot_item_toggle(eu_CAPABILITY, N_fmt(X_BOT_capprm_fmt), BOT_SEP_CMA);
          break;
       case kbd_CtrlE:
 #ifndef SCALE_FORMER
@@ -6410,11 +6415,6 @@ static int sum_tics (struct stat_stack *this, const char *pfx, int nobuf) {
    if (1 > tot_frme) idl_frme = tot_frme = 1;
    scale = 100.0 / (float)tot_frme;
 
-   /* account for VM tics not otherwise provided for ...
-      ( with xtra-procps-debug.h, can't use PID_VAL w/ assignment ) */
-   this->head[stat_SY].result.sl_int += rSv(stat_GU) + rSv(stat_GN);
-   this->head[stat_SUM_SYS].result.sl_int += rSv(stat_GU) + rSv(stat_GN);
-
    /* display some kinda' cpu state percentages
       (who or what is explained by the passed prefix) */
    if (Curwin->rc.graph_cpus) {
@@ -6464,8 +6464,6 @@ static int sum_unify (struct stat_stack *this, int nobuf) {
    stack[stat_IR].result.sl_int += rSv(stat_IR, sl_int);
    stack[stat_SI].result.sl_int += rSv(stat_SI, sl_int);
    stack[stat_ST].result.sl_int += rSv(stat_ST, sl_int);
-   stack[stat_GU].result.sl_int += rSv(stat_GU, sl_int);
-   stack[stat_GN].result.sl_int += rSv(stat_GN, sl_int);
    stack[stat_SUM_USR].result.sl_int += rSv(stat_SUM_USR, sl_int);
    stack[stat_SUM_SYS].result.sl_int += rSv(stat_SUM_SYS, sl_int);
    stack[stat_SUM_TOT].result.sl_int += rSv(stat_SUM_TOT, sl_int);
@@ -6728,8 +6726,8 @@ static void do_key (int ch) {
       { keys_global,
          { '?', 'B', 'd', 'E', 'e', 'f', 'g', 'H', 'h'
          , 'I', 'k', 'r', 's', 'X', 'Y', 'Z', '0'
-         , kbd_CtrlE, kbd_CtrlG, kbd_CtrlI, kbd_CtrlK, kbd_CtrlL
-         , kbd_CtrlN, kbd_CtrlP, kbd_CtrlR, kbd_CtrlU
+         , kbd_CtrlA, kbd_CtrlE, kbd_CtrlG, kbd_CtrlI, kbd_CtrlK
+         , kbd_CtrlL, kbd_CtrlN, kbd_CtrlP, kbd_CtrlR, kbd_CtrlU
          , kbd_ENTER, kbd_SPACE, kbd_BTAB, '\0' } },
       { keys_summary,
  #ifdef CORE_TYPE_NO
@@ -7407,7 +7405,7 @@ static void frame_make (void) {
    }
 
    if (CHKw(w, View_SCROLL) && VIZISw(Curwin)) show_scroll();
-   if (Bot_show_func) Bot_show_func();
+   if (Bot_new) bot_item_show();
    fflush(stdout);
 
    /* we'll deem any terminal not supporting tgoto as dumb and disable
