@@ -564,9 +564,9 @@ static int meminfo_make_hash_failed (
         struct meminfo_info *info)
 {
  #define htVAL(f) e.key = STRINGIFY(f); e.data = &info->hist.new. f; \
-  if (!hsearch_r(e, ENTER, &ep, &info->hashtab)) return 1;
+  if (!hsearch_r(e, ENTER, &ep, &info->hashtab)) goto err_return;
  #define htXTRA(k,f) e.key = STRINGIFY(k); e.data = &info->hist.new. f; \
-  if (!hsearch_r(e, ENTER, &ep, &info->hashtab)) return 1;
+  if (!hsearch_r(e, ENTER, &ep, &info->hashtab)) goto err_return;
     ENTRY e, *ep;
     size_t n;
 
@@ -622,6 +622,7 @@ static int meminfo_make_hash_failed (
     htVAL(Percpu)
     htVAL(SReclaimable)
     htVAL(SUnreclaim)
+    htVAL(SecPageTables)
     htVAL(ShadowCallStack)
     htVAL(Shmem)
     htVAL(ShmemHugePages)
@@ -630,6 +631,7 @@ static int meminfo_make_hash_failed (
     htVAL(SwapCached)
     htVAL(SwapFree)
     htVAL(SwapTotal)
+    htVAL(Unaccepted)
     htVAL(Unevictable)
     htVAL(VmallocChunk)
     htVAL(VmallocTotal)
@@ -640,6 +642,8 @@ static int meminfo_make_hash_failed (
     htVAL(Zswapped)
 
     return 0;
+ err_return:
+    return 1;
  #undef htVAL
  #undef htXTRA
 } // end: meminfo_make_hash_failed
