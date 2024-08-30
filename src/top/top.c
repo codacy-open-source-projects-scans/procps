@@ -272,8 +272,10 @@ static enum pids_item *Pids_itms;           // allocated as MAXTBL(Fieldstab)
 static struct pids_fetch *Pids_reap;        // for reap or select
 #define PIDSmaxt Pids_reap->counts->total   // just a little less wordy
         // pid stack results extractor macro, where e=our EU enum, t=type, s=stack
-        // ( we'll exploit that <proc/pids.h> provided macro as much as possible )
-        // ( but many functions use their own unique tailored version for access )
+        // ( now we're just duplicating that pids.h provided VAL macro since the )
+        // ( 'info' parameter has been removed. however, we'll leave it in place )
+        // ( since many routines use their own unique version based on this one. )
+        // ( besides, all of our otther global VAL macros use the 3 byte prefix. )
 #define PID_VAL(e,t,s) PIDS_VAL(e, t, s)
         /*
          *  --- <proc/stat.h> -------------------------------------------------- */
@@ -5608,7 +5610,7 @@ static void write_rcfile (void) {
    *  a reasonably modest size. */
 
 static void keys_bottom (int ch) {
-   static int max_indx;
+   int max_indx;
 
    switch (ch) {
       case kbd_CtrlA:
@@ -5641,7 +5643,7 @@ static void keys_bottom (int ch) {
             if (Bot_indx > max_indx) Bot_indx = BOT_UNFOCUS;
             ++Bot_indx;
             if (Bot_indx > max_indx) Bot_indx = BOT_UNFOCUS;
-            max_indx = Bot_focus_func(NULL, NULL);
+            Bot_focus_func(NULL, NULL);
          }
          break;
       case kbd_BTAB:
@@ -5651,7 +5653,7 @@ static void keys_bottom (int ch) {
             if (Bot_indx <= BOT_UNFOCUS) Bot_indx = max_indx + 1;
             --Bot_indx;
             if (Bot_indx <= BOT_UNFOCUS) Bot_indx = max_indx + 1;
-            max_indx = Bot_focus_func(NULL, NULL);
+            Bot_focus_func(NULL, NULL);
          }
          break;
       default:                    // keep gcc happy
@@ -6990,7 +6992,7 @@ static const char *task_show (const WIN_t *q, int idx) {
             else
                cp = make_num(rSv(EU_PRI, s_int), W, Jn, AUTOX_NO, 0);
             break;
-   /* s_int, scale_pcnt with special handling */
+   /* u_int, scale_pcnt with special handling */
          case EU_CPU:        // PIDS_TICS_ALL_DELTA
          {  float u = (float)rSv(EU_CPU, u_int);
             int n = rSv(EU_THD, s_int);
