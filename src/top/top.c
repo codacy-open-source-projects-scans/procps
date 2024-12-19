@@ -251,14 +251,14 @@ static const char Osel_filterI_fmt[] = "\ttype=%d,\t" OSEL_FILTER "%*s\n";
         /* Support for adjoining display (if terminal is wide enough) */
 #ifdef TOG4_SEP_OFF
 static char Adjoin_sp[] =  "  ";
-#define ADJOIN_space  (sizeof(Adjoin_sp) - 1)    // 1 for null
+#define ADJOIN_space  ((int)(sizeof(Adjoin_sp) - 1))  // 1 for null
 #else
 #ifdef TOG4_SEP_STD
 static char Adjoin_sp[] =  "~1 ~6 ";
 #else
 static char Adjoin_sp[] =  " ~6 ~1";
 #endif
-#define ADJOIN_space  (sizeof(Adjoin_sp) - 5)    // 1 for null + 4 unprintable
+#define ADJOIN_space  ((int)(sizeof(Adjoin_sp) - 5))  // 1 for null + 4 unprintable
 #endif
 #define ADJOIN_limit  8
 
@@ -2839,14 +2839,16 @@ static void *tasks_refresh (void *unused) {
 #ifdef THREADED_TSK
       sem_wait(&Semaphore_tasks_beg);
 #endif
-      clock_gettime(CLOCK_BOOTTIME, &ts);
-      uptime_cur = (ts.tv_sec + ts.tv_nsec * 1.0e-9);
-      et = uptime_cur - uptime_sav;
-      if (et < 0.01) et = 0.005;
-      uptime_sav = uptime_cur;
-      // if in Solaris mode, adjust our scaling for all cpus
-      Frame_etscale = 100.0f / ((float)Hertz * (float)et * (Rc.mode_irixps ? 1 : Cpu_cnt));
-
+      if (0 != clock_gettime(CLOCK_BOOTTIME, &ts))
+         Frame_etscale = 0;
+      else {
+         uptime_cur = (ts.tv_sec + ts.tv_nsec * 1.0e-9);
+         et = uptime_cur - uptime_sav;
+         if (et < 0.01) et = 0.005;
+         uptime_sav = uptime_cur;
+         // if in Solaris mode, adjust our scaling for all cpus
+         Frame_etscale = 100.0f / ((float)Hertz * (float)et * (Rc.mode_irixps ? 1 : Cpu_cnt));
+      }
       what = Thread_mode ? PIDS_FETCH_THREADS_TOO : PIDS_FETCH_TASKS_ONLY;
       if (Monpidsidx) {
          what |= PIDS_SELECT_PID;
@@ -3888,9 +3890,8 @@ static void config_insp (FILE *fp, char *buf, size_t size) {
       int n, x;
       char *s1, *s2, *s3;
 
-      if (i < 0 || (size_t)i >= INT_MAX / sizeof(struct I_ent)) break;
-      if (lraw >= INT_MAX - size) break;
-
+      if (i < 0 || (size_t)i >= (size_t)INT_MAX / sizeof(struct I_ent)) break;
+      if (lraw >= (size_t)INT_MAX - size) break;
       if (!buf[0] && !fgets(buf, size, fp)) break;
       lraw += strlen(buf) +1;
       Inspect.raw = alloc_r(Inspect.raw, lraw);
