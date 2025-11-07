@@ -31,7 +31,8 @@
 #include "misc.h"
 
 // the following is development only, forcing display of "[ duplicate ENUM ]" strings
-// #define FALSE_THREADS        /* set most child string fields to NULL */
+// for the supgid and supgrp fields when displaying threads ...
+//#define FALSE_THREADS
 
 
 // This is to help document a transition from pid to tgid/tid caused
@@ -211,6 +212,8 @@ typedef struct proc_t {
 #define PROCPATHLEN 64  // must hold /proc/2000222000/task/2000222000/cmdline
 
 typedef struct PROCTAB {
+    int         pidfd;          // FD for the /proc/<pid> directory
+    int         taskfd;         // FD for the /proc/<pid>/tasks/<tid> directory
     DIR        *procfs;
 //    char deBug0[64];
     DIR        *taskdir;  // for threads
@@ -218,18 +221,14 @@ typedef struct PROCTAB {
     pid_t       taskdir_user;  // for threads
     int(*finder)(struct PROCTAB *__restrict const, proc_t *__restrict const);
     proc_t*(*reader)(struct PROCTAB *__restrict const, proc_t *__restrict const);
-    int(*taskfinder)(struct PROCTAB *__restrict const, const proc_t *__restrict const, proc_t *__restrict const, char *__restrict const);
-    proc_t*(*taskreader)(struct PROCTAB *__restrict const, proc_t *__restrict const, char *__restrict const);
+    int(*taskfinder)(struct PROCTAB *__restrict const, const proc_t *__restrict const, proc_t *__restrict const);
+    proc_t*(*taskreader)(struct PROCTAB *__restrict const, proc_t *__restrict const);
     pid_t      *pids;   // pids of the procs
     uid_t      *uids;   // uids of procs
     int         nuid;   // cannot really sentinel-terminate unsigned short[]
     int         i;  // generic
     int         hide_kernel;  // getenv LIBPROC_HIDE_KERNEL was set
     unsigned    flags;
-    unsigned    u;  // generic
-    void *      vp; // generic
-    char        path[PROCPATHLEN];  // must hold /proc/2000222000/task/2000222000/cmdline
-    unsigned pathlen;        // length of string in the above (w/o '\0')
 } PROCTAB;
 
 
@@ -313,7 +312,7 @@ char **vectorize_this_str(const char *src);
 
 struct utlbuf_s;
 struct docker_ids;
-char *lxc_containers(const char *path, struct utlbuf_s *ub);
-struct docker_ids *docker_containers(const char *path, struct utlbuf_s *ub);
+char *lxc_containers(struct utlbuf_s *ub);
+struct docker_ids *docker_containers(struct utlbuf_s *ub);
 
 #endif

@@ -1,7 +1,7 @@
 /*
  * pgrep/pkill -- utilities to filter the process table
  *
- * Copyright © 2009-2023 Craig Small <csmall@dropbear.xyz>
+ * Copyright © 2009-2025 Craig Small <csmall@dropbear.xyz>
  * Copyright © 2013-2023 Jim Warner <james.warner@comcast.net>
  * Copyright © 2011-2012 Sami Kerola <kerolasa@iki.fi>
  * Copyright © 2012      Roberto Polli <rpolli@babel.it>
@@ -41,12 +41,16 @@
 #include <getopt.h>
 #include <stdbool.h>
 #include <time.h>
+#include <sys/syscall.h>
+#include <sys/mman.h>
 
 #ifdef ENABLE_PIDWAIT
 #include <sys/epoll.h>
-#include <sys/syscall.h>
 #endif
 
+#ifdef HAVE_SYS_PIDFD_H
+#include <sys/pidfd.h>
+#endif
 /* EXIT_SUCCESS is 0 */
 /* EXIT_FAILURE is 1 */
 #define EXIT_USAGE 2
@@ -75,6 +79,7 @@ enum pids_item Items[] = {
     PIDS_TTY_NAME,
     PIDS_CMD,
     PIDS_CMDLINE,
+    PIDS_CMDLINE_V,
     PIDS_STATE,
     PIDS_TIME_ELAPSED,
     PIDS_CGROUP_V,
@@ -85,12 +90,12 @@ enum pids_item Items[] = {
 
 enum rel_items {
     EU_PID, EU_PPID, EU_PGRP, EU_EUID, EU_RUID, EU_RGID, EU_SESSION,
-    EU_TGID, EU_STARTTIME, EU_TTYNAME, EU_CMD, EU_CMDLINE, EU_STA, EU_ELAPSED,
-    EU_CGROUP, EU_SIGCATCH, EU_ENVIRON
+    EU_TGID, EU_STARTTIME, EU_TTYNAME, EU_CMD, EU_CMDLINE, EU_CMDLINE_V, EU_STA,
+    EU_ELAPSED, EU_CGROUP, EU_SIGCATCH, EU_ENVIRON
 };
 #define grow_size(x) do { \
 	if ((x) < 0 || (size_t)(x) >= INT_MAX / 5 / sizeof(struct el)) \
-		xerrx(EXIT_FAILURE, _("integer overflow")); \
+		errx(EXIT_FAILURE, _("integer overflow")); \
 	(x) = (x) * 5 / 4 + 4; \
 } while (0)
 
@@ -122,6 +127,9 @@ static int opt_signal = SIGTERM;
 static int opt_case = 0;
 static int opt_echo = 0;
 static int opt_threads = 0;
+static int opt_shell_quote = 0;
+static bool opt_mrelease = false;
+
 static pid_t opt_ns_pid = 0;
 static bool use_sigqueue = false;
 static bool require_handler = false;
@@ -167,6 +175,7 @@ static int __attribute__ ((__noreturn__)) usage(int opt)
         fputs(_(" -H, --require-handler     match only if signal handler is present\n"), fp);
         fputs(_(" -q, --queue <value>       integer value to be sent with the signal\n"), fp);
         fputs(_(" -e, --echo                display what is killed\n"), fp);
+        fputs(_(" -m, --mrelease            release process memory immediately after kill\n"), fp);
         break;
 #ifdef ENABLE_PIDWAIT
     case PIDWAIT:
@@ -182,6 +191,7 @@ static int __attribute__ ((__noreturn__)) usage(int opt)
     fputs(_(" -n, --newest              select most recently started\n"), fp);
     fputs(_(" -o, --oldest              select least recently started\n"), fp);
     fputs(_(" -O, --older <seconds>     select where older than seconds\n"), fp);
+    fputs(_(" -p, --pid <PID,...>       match process PIDs\n"), fp);
     fputs(_(" -P, --parent <PPID,...>   match only child processes of the given parent\n"), fp);
     fputs(_(" -s, --session <SID,...>   match session IDs\n"), fp);
     fputs(_("     --signal <sig>        signal to send (either number or name)\n"), fp);
@@ -193,6 +203,7 @@ static int __attribute__ ((__noreturn__)) usage(int opt)
     fputs(_(" -L, --logpidfile          fail if PID file is not locked\n"), fp);
     fputs(_(" -r, --runstates <state>   match runstates [D,S,Z,...]\n"), fp);
     fputs(_(" -A, --ignore-ancestors    exclude our ancestors from results\n"), fp);
+    fputs(_(" -Q, --shell-quote         output the command line in shell-quoted form\n"), fp);
     fputs(_(" --cgroup <grp,...>        match by cgroup v2 names\n"), fp);
     fputs(_(" --ns <PID>                match the processes that belong to the same\n"
         "                           namespace as <pid>\n"), fp);
@@ -222,7 +233,7 @@ static struct el *get_our_ancestors(void)
         struct pids_info *info = NULL;
 
         if (procps_pids_new(&info, Items, ITEMS_COUNT) < 0)
-            xerrx(EXIT_FATAL, _("Unable to create pid info structure"));
+            errx(EXIT_FATAL, _("Unable to create pid info structure"));
 
         if (i == size) {
             grow_size(size);
@@ -361,14 +372,14 @@ static struct el *read_pidfile(
         fp = stdin;
     else
         if ((fp = fopen(pidfile, "r")) == NULL) {
-            xerr(EXIT_FAILURE, _("Unable to open pidfile"));
+            err(EXIT_FAILURE, _("Unable to open pidfile"));
             return NULL;
         }
     if (check_lock) {
         int fd = fileno(fp);
-        if (fp < 0 || (!has_flock(fd) && !has_fcntl(fd))) {
+        if (fd < 0 || (!has_flock(fd) && !has_fcntl(fd))) {
             fclose(fp);
-            xerr(EXIT_FAILURE, _("Locking check for pidfile failed"));
+            err(EXIT_FAILURE, _("Locking check for pidfile failed"));
             return NULL;
         }
     }
@@ -398,7 +409,7 @@ static int conv_uid (const char *restrict name, struct el *restrict e)
 
     pwd = getpwnam (name);
     if (pwd == NULL) {
-        xwarnx(_("invalid user name: %s"), name);
+        warnx(_("invalid user name: %s"), name);
         return 0;
     }
     e->num = pwd->pw_uid;
@@ -415,7 +426,7 @@ static int conv_gid (const char *restrict name, struct el *restrict e)
 
     grp = getgrnam (name);
     if (grp == NULL) {
-        xwarnx(_("invalid group name: %s"), name);
+        warnx(_("invalid group name: %s"), name);
         return 0;
     }
     e->num = grp->gr_gid;
@@ -426,7 +437,7 @@ static int conv_gid (const char *restrict name, struct el *restrict e)
 static int conv_pgrp (const char *restrict name, struct el *restrict e)
 {
     if (! strict_atol (name, &e->num)) {
-        xwarnx(_("invalid process group: %s"), name);
+        warnx(_("invalid process group: %s"), name);
         return 0;
     }
     if (e->num == 0)
@@ -438,7 +449,7 @@ static int conv_pgrp (const char *restrict name, struct el *restrict e)
 static int conv_sid (const char *restrict name, struct el *restrict e)
 {
     if (! strict_atol (name, &e->num)) {
-        xwarnx(_("invalid session id: %s"), name);
+        warnx(_("invalid session id: %s"), name);
         return 0;
     }
     if (e->num == 0)
@@ -450,7 +461,7 @@ static int conv_sid (const char *restrict name, struct el *restrict e)
 static int conv_num (const char *restrict name, struct el *restrict e)
 {
     if (! strict_atol (name, &e->num)) {
-        xwarnx(_("not a number: %s"), name);
+        warnx(_("not a number: %s"), name);
         return 0;
     }
     return 1;
@@ -498,9 +509,9 @@ static unsigned long long unhex (const char *restrict in)
     unsigned long long ret;
     char *rem;
     errno = 0;
-    ret = strtoull(in, &rem, ITEMS_COUNT);
+    ret = strtoull(in, &rem, 16);
     if (errno || *rem != '\0') {
-        xwarnx(_("not a hex string: %s"), in);
+        warnx(_("not a hex string: %s"), in);
         return 0;
     }
     return ret;
@@ -534,7 +545,7 @@ static int match_ns (const int pid,
     int i;
 
     if (procps_ns_read_pid(pid, &proc_ns) < 0)
-        xerrx(EXIT_FATAL,
+        errx(EXIT_FATAL,
               _("Unable to read process namespace information"));
     for (i = 0; i < PROCPS_NS_COUNT; i++) {
         if (ns_flags & (1 << i)) {
@@ -622,6 +633,89 @@ static void output_strlist (const struct el *restrict list, int num)
     }
 }
 
+static int is_token_safe(const char *token) {
+    if (*token == '\0') /* Zero‐length, so needs quoting */
+        return 0;
+    for (; *token; token++) {
+        char c = *token;
+        if ((c >= 'a' && c <= 'z') ||
+            (c >= 'A' && c <= 'Z') ||
+            (c >= '0' && c <= '9'))
+            continue;
+        switch (c) {
+            case '_':
+            case '@':
+            case '%':
+            case '+':
+            case ':':
+            case ',':
+            case '.':
+            case '/':
+            case '-':
+                break;
+            default:
+                return 0;
+        }
+    }
+    return 1;
+}
+
+static char *shell_quote_vector(char **argv_vector)
+{
+    size_t total_worst = 0;
+
+    /* The worst case is that every character is a single quote needing
+     * expansion. Preallocate enough space for the surrounding quotes, and for
+     * each character possibly expanding to 4 bytes. Also add one character for
+     * a space between tokens. Doing a full pass up front avoids xrealloc()
+     * hell later. */
+    for (int i = 0; argv_vector[i] != NULL; i++) {
+        if (i > 0)
+            total_worst += 1;  /* space separator */
+        const char *token = argv_vector[i];
+        if (is_token_safe(token))
+            total_worst += strlen(token);
+        else {
+            size_t len = strlen(token);
+            total_worst += 2 + len * 4;
+        }
+    }
+    total_worst += 1;
+
+    char *result = xmalloc(total_worst);
+    size_t pos = 0;
+
+    for (int i = 0; argv_vector[i] != NULL; i++) {
+        if (i > 0)
+            result[pos++] = ' ';
+        const char *token = argv_vector[i];
+        if (is_token_safe(token)) {
+            size_t token_len = strlen(token);
+            memcpy(result + pos, token, token_len);
+            pos += token_len;
+        } else {
+            result[pos++] = '\'';
+            for (const char *p = token; *p; p++) {
+                if (*p == '\'') {
+                    memcpy(result + pos, "'\\''", 4);
+                    pos += 4;
+                } else {
+                    result[pos++] = *p;
+                }
+            }
+            result[pos++] = '\'';
+        }
+    }
+    result[pos] = '\0';
+    return result;
+}
+
+static char *shell_quote_cmd(char *token)
+{
+    char *argv[2] = { token, NULL };
+    return shell_quote_vector(argv);
+}
+
 static regex_t * do_regcomp (void)
 {
     regex_t *preg = NULL;
@@ -645,7 +739,7 @@ static regex_t * do_regcomp (void)
 
         if (re_err) {
             regerror (re_err, preg, errbuf, sizeof(errbuf));
-            xerrx(EXIT_USAGE, _("regex error: %s"), errbuf);
+            errx(EXIT_USAGE, _("regex error: %s"), errbuf);
         }
     }
     return preg;
@@ -727,12 +821,12 @@ static struct el * select_procs (int *num)
     if (opt_newest) saved_pid = 0;
     if (opt_oldest) saved_pid = INT_MAX;
     if (opt_ns_pid && procps_ns_read_pid(opt_ns_pid, &nsp) < 0) {
-        xerrx(EXIT_FATAL,
+        errx(EXIT_FATAL,
               _("Error reading reference namespace information\n"));
     }
 
     if (procps_pids_new(&info, Items, ITEMS_COUNT) < 0)
-        xerrx(EXIT_FATAL,
+        errx(EXIT_FATAL,
               _("Unable to create pid info structure"));
     which = PIDS_FETCH_TASKS_ONLY;
     // pkill and pidwait don't support -w, but this is checked in getopt
@@ -781,8 +875,18 @@ static struct el * select_procs (int *num)
 
         task_cmdline = PIDS_GETSTR(CMDLINE);
 
-        if (opt_long || opt_longlong || (match && opt_pattern)) {
-            if (opt_longlong)
+        if (opt_long || opt_longlong || opt_shell_quote || (match && opt_pattern)) {
+            if (opt_shell_quote) {
+                char *quoted;
+                if (opt_longlong) {
+                    char **argv_vector = PIDS_GETSTV(CMDLINE_V);
+                    quoted = shell_quote_vector(argv_vector);
+                } else {
+                    quoted = shell_quote_cmd(PIDS_GETSTR(CMD));
+                }
+                strncpy(cmdoutput, quoted, cmdlen - 1);
+                free(quoted);
+            } else if (opt_longlong)
                 strncpy (cmdoutput, task_cmdline, cmdlen -1);
             else
                 strncpy (cmdoutput, PIDS_GETSTR(CMD), cmdlen -1);
@@ -821,13 +925,13 @@ static struct el * select_procs (int *num)
 				grow_size(size);
                 list = xrealloc(list, size * sizeof *list);
             }
-            if (list && (opt_long || opt_longlong || opt_echo)) {
+            if (list && (opt_long || opt_longlong || opt_echo || opt_shell_quote)) {
                 list[matches].num = PIDS_GETINT(PID);
                 list[matches++].str = xstrdup (cmdoutput);
             } else if (list) {
                 list[matches++].num = PIDS_GETINT(PID);
             } else {
-                xerrx(EXIT_FATAL, _("internal error"));
+                errx(EXIT_FATAL, _("internal error"));
             }
         }
     }
@@ -844,7 +948,7 @@ static struct el * select_procs (int *num)
     *num = matches;
 
     if ((!matches) && (!opt_full) && is_long_match(opt_pattern))
-        xwarnx(_("pattern that searches for process name longer than 15 characters will result in zero matches\n"
+        warnx(_("pattern that searches for process name longer than 15 characters will result in zero matches\n"
                  "Try `%s -f' option to match against the complete command line."),
                program_invocation_short_name);
     return list;
@@ -873,10 +977,52 @@ static int signal_option(int *argc, char **argv)
     return -1;
 }
 
-#if defined(ENABLE_PIDWAIT) && !defined(HAVE_PIDFD_OPEN)
+#if !defined(HAVE_PIDFD_OPEN)
+
+#ifndef SYS_pidfd_open
+#ifdef __alpha__
+#define SYS_pidfd_open 544
+#else
+#define SYS_pidfd_open 434
+#endif
+#endif
+
 static int pidfd_open (pid_t pid, unsigned int flags)
 {
-	return syscall(__NR_pidfd_open, pid, flags);
+	return syscall(SYS_pidfd_open, pid, flags);
+}
+#endif
+
+#ifndef HAVE_PIDFD_SEND_SIGNAL
+
+#ifndef SYS_pidfd_send_signal
+#ifdef __alpha__
+#define SYS_pidfd_send_signal 534
+#else
+#define SYS_pidfd_send_signal 424
+#endif
+#endif
+
+static int pidfd_send_signal(int pidfd, int sig, siginfo_t *info,
+        unsigned int flags)
+{
+    return syscall(SYS_pidfd_send_signal, pidfd, sig, info, flags);
+}
+#endif
+
+#if !defined(HAVE_PROCESS_MRELEASE)
+
+#ifndef SYS_process_mrelease
+#ifdef __alpha__
+#define SYS_process_mrelease 558
+#else
+#define SYS_process_mrelease 448
+#endif
+#endif
+
+static int process_mrelease(int pidfd, unsigned int flags)
+{
+	return syscall(SYS_process_mrelease, pidfd, flags);
 }
 #endif
 
@@ -911,6 +1057,7 @@ static void parse_opts (int argc, char **argv)
         {"newest", no_argument, NULL, 'n'},
         {"oldest", no_argument, NULL, 'o'},
         {"older", required_argument, NULL, 'O'},
+        {"pid", required_argument, NULL, 'p'},
         {"parent", required_argument, NULL, 'P'},
         {"session", required_argument, NULL, 's'},
         {"terminal", required_argument, NULL, 't'},
@@ -927,6 +1074,8 @@ static void parse_opts (int argc, char **argv)
         {"queue", required_argument, NULL, 'q'},
         {"runstates", required_argument, NULL, 'r'},
         {"env", required_argument, NULL, ENV_OPTION},
+        {"shell-quote", no_argument, NULL, 'Q'},
+        {"mrelease", no_argument, NULL, 'm'},
         {"help", no_argument, NULL, 'h'},
         {"version", no_argument, NULL, 'V'},
         {NULL, 0, NULL, 0}
@@ -947,13 +1096,13 @@ static void parse_opts (int argc, char **argv)
         sig = signal_option(&argc, argv);
         if (-1 < sig)
             opt_signal = sig;
-	strcat (opts, "eq:");
+	strcat (opts, "eq:mQ");
     } else {
-        strcat (opts, "lad:vw");
+        strcat (opts, "lad:vwQ");
         prog_mode = PGREP;
     }
 
-    strcat (opts, "LF:cfinoxP:O:AHg:s:u:U:G:t:r:?Vh");
+    strcat (opts, "LF:cfinoxp:P:O:AHg:s:u:U:G:t:r:?Vh");
 
     while ((opt = getopt_long (argc, argv, opts, longopts, NULL)) != -1) {
         switch (opt) {
@@ -995,6 +1144,12 @@ static void parse_opts (int argc, char **argv)
  *            break; */
 /*        case 'N':   / * FreeBSD: specify alternate namelist file (for us, System.map -- but we don't need it) * /
  *            break; */
+        case 'p':
+            opt_pid = split_list (optarg, conv_num);
+            if (opt_pid == NULL)
+                usage('?');
+            ++criteria_count;
+            break;
         case 'P':   /* Solaris: match by PPID */
             opt_ppid = split_list (optarg, conv_num);
             if (opt_ppid == NULL)
@@ -1127,6 +1282,12 @@ static void parse_opts (int argc, char **argv)
             require_handler = true;
             ++criteria_count;
             break;
+        case 'm':
+            opt_mrelease = true;
+            break;
+        case 'Q':
+            opt_shell_quote = 1;
+            break;
         case 'h':
         case '?':
             usage (opt);
@@ -1135,14 +1296,19 @@ static void parse_opts (int argc, char **argv)
     }
 
     if(opt_lock && !opt_pidfile)
-        xerrx(EXIT_USAGE, _("-L without -F makes no sense\n"
+        errx(EXIT_USAGE, _("-L without -F makes no sense\n"
                      "Try `%s --help' for more information."),
                      program_invocation_short_name);
 
     if(opt_pidfile){
+        if (opt_pid != NULL)
+            errx(EXIT_FAILURE,
+                    _("Cannot use pidfile and pid option together\n"
+                     "Try `%s --help' for more information."),
+                    program_invocation_short_name);
         opt_pid = read_pidfile(opt_pidfile, opt_lock);
         if(!opt_pid)
-            xerrx(EXIT_FAILURE, _("pidfile not valid\n"
+            errx(EXIT_FAILURE, _("pidfile not valid\n"
                          "Try `%s --help' for more information."),
                          program_invocation_short_name);
     }
@@ -1151,17 +1317,33 @@ static void parse_opts (int argc, char **argv)
         opt_pattern = argv[optind];
 
     else if (argc - optind > 1)
-        xerrx(EXIT_USAGE, _("only one pattern can be provided\n"
+        errx(EXIT_USAGE, _("only one pattern can be provided\n"
                      "Try `%s --help' for more information."),
                      program_invocation_short_name);
     else if (criteria_count == 0)
-        xerrx(EXIT_USAGE, _("no matching criteria specified\n"
+        errx(EXIT_USAGE, _("no matching criteria specified\n"
                      "Try `%s --help' for more information."),
                      program_invocation_short_name);
 }
 
-inline static int execute_kill(pid_t pid, int sig_num)
+inline static int execute_kill(int pidfd, pid_t pid, int sig_num)
 {
+    if (pidfd >= 0) {
+        siginfo_t sinfo;
+        int rc;
+        if (use_sigqueue) {
+            memset(&sinfo, 0, sizeof(sinfo));
+            sinfo.si_code = SI_QUEUE;
+            sinfo.si_signo = sig_num;
+            sinfo.si_errno = 0;
+            sinfo.si_uid = getuid();
+            sinfo.si_pid = getpid();
+            sinfo.si_value.sival_int = sigval.sival_int;
+        }
+        rc = pidfd_send_signal(pidfd, sig_num, (use_sigqueue?&sinfo:NULL), 0);
+        if (rc == 0 || errno != ENOSYS)
+            return rc;
+    } // ENOSYS will fall through to below
     if (use_sigqueue)
         return sigqueue(pid, sig_num, sigval);
     else
@@ -1174,6 +1356,7 @@ int main (int argc, char **argv)
     int num;
     int i;
     int kill_count = 0;
+    bool mrelease_failed = false;
 #ifdef ENABLE_PIDWAIT
     int poll_count = 0;
     int wait_count = 0;
@@ -1205,19 +1388,33 @@ int main (int argc, char **argv)
         return !num;
     case PKILL:
         for (i = 0; i < num; i++) {
-            if (execute_kill (procs[i].num, opt_signal) != -1) {
+            int pidfd = -1;
+            pidfd = pidfd_open(procs[i].num, 0);
+            if (opt_mrelease && pidfd < 0)
+                err(EXIT_FAILURE, _("pidfd_open for process %ld failed"), procs[i].num);
+            if (execute_kill (pidfd, procs[i].num, opt_signal) != -1) {
                 if (opt_echo)
                     printf(_("%s killed (pid %lu)\n"), procs[i].str, procs[i].num);
                 kill_count++;
+                if (opt_mrelease) {
+                    int res = process_mrelease(pidfd, 0);
+                    if (res != 0 && errno != ESRCH) {
+                        warn(_("pid %ld killed, but process_mrelease failed"), procs[i].num);
+                        mrelease_failed = true;
+                    }
+                    close(pidfd);
+                }
                 continue;
             }
             if (errno==ESRCH)
                  /* gone now, which is OK */
                 continue;
-            xwarn(_("killing pid %ld failed"), procs[i].num);
+            warn(_("killing pid %ld failed"), procs[i].num);
         }
         if (opt_count)
             fprintf(stdout, "%d\n", num);
+        if (mrelease_failed)
+            return 1;
         return !kill_count;
 #ifdef ENABLE_PIDWAIT
     case PIDWAIT:
@@ -1230,10 +1427,10 @@ int main (int argc, char **argv)
             int pidfd = pidfd_open(procs[i].num, 0);
             if (pidfd == -1) {
 		if (errno == ENOSYS)
-		    xerrx(EXIT_FAILURE, _("pidfd_open() not implemented in Linux < 5.3"));
+		    errx(EXIT_FAILURE, _("pidfd_open() not implemented in Linux < 5.3"));
                 /* ignore ESRCH, same as pkill */
                 if (errno != ESRCH)
-                    xwarn(_("opening pid %ld failed"), procs[i].num);
+                    warn(_("opening pid %ld failed"), procs[i].num);
                 continue;
             }
             ev.events = EPOLLIN | EPOLLET;
@@ -1247,7 +1444,7 @@ int main (int argc, char **argv)
             if (ew == -1) {
                 if (errno == EINTR)
                     continue;
-                xwarn(_("epoll_wait failed"));
+                warn(_("epoll_wait failed"));
             }
             wait_count += ew;
         }

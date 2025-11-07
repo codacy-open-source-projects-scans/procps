@@ -1,6 +1,6 @@
 /* top_nls.c - provide the basis for future nls translations */
 /*
- * Copyright © 2011-2024 Jim Warner <james.warner@comcast.net
+ * Copyright © 2011-2025 Jim Warner <james.warner@comcast.net
  *
  * This file may be used subject to the terms and conditions of the
  * GNU Library General Public License Version 2, or any later version
@@ -410,6 +410,7 @@ static void build_norm_nlstab (void) {
       " %s [options]\n"
       "\n"
       "Options:\n"
+      " -A, --apply-defaults            if present, ignore config file(s)\n"
       " -b, --batch-mode                run in non-interactive batch mode\n"
       " -c, --cmdline-toggle            reverse last remembered 'c' state\n"
       " -d, --delay =SECS [.TENTHS]     iterative delay as SECS [.TENTHS]\n"
@@ -594,7 +595,6 @@ static void build_norm_nlstab (void) {
    Norm_nlstab[LIB_errorpid_fmt] = _("library failed pids statistics, at %d: %s");
    Norm_nlstab[BAD_memscale_fmt] = _("bad memory scaling arg '%s'");
    Norm_nlstab[XTRA_vforest_fmt] = _("PID to collapse/expand [default pid = %d]");
-   Norm_nlstab[XTRA_modebad_txt] = _("wrong mode, command inactive");
    Norm_nlstab[XTRA_warnold_txt] = _("saving prevents older top from reading, save anyway?");
    Norm_nlstab[X_SEMAPHORES_fmt] = _("failed sem_init() at %d: %s");
    Norm_nlstab[X_THREADINGS_fmt] = _("failed pthread_create() at %d: %s");
@@ -611,6 +611,10 @@ static void build_norm_nlstab (void) {
    Norm_nlstab[X_BOT_nodata_txt] = _("n/a");
    Norm_nlstab[X_BOT_supgrp_fmt] = _("supplementary groups for pid %d, %s");
    Norm_nlstab[X_BOT_msglog_txt] = _("message log, last 10 messages:");
+   Norm_nlstab[XTRA_args_no_fmt] = _("option '%s' must be used alone");
+   Norm_nlstab[WORD_core_vs_fmt] = _("Core%-3d:");
+   Norm_nlstab[CORE_type_no_txt] = _("sorry, distinct cpu core types do not exist");
+   Norm_nlstab[CORE_unavail_txt] = _("sorry, system cpu core data is unavailable");
 }
 
 
@@ -644,7 +648,7 @@ static void build_uniq_nlstab (void) {
    .  source file.
    .
    .  Caution:
-   .    The next three items represent pages for interacting with a user.
+   .    The next four items represent pages for interacting with a user.
    .    In all cases, the last lines of text must be treated with care.
    .
    .    They must not end with a newline character so that at runtime the
@@ -672,14 +676,42 @@ static void build_uniq_nlstab (void) {
       "  u,U,o,O . Filter by: '~1u~2'/'~1U~2' effective/any user; '~1o~2'/'~1O~2' other criteria\n"
       "  n,#,^O  . Set: '~1n~2'/'~1#~2' max tasks displayed; Show: ~1Ctrl~2+'~1O~2' other filter(s)\n"
       "  V,v,F   . Toggle: '~1V~2' forest view; '~1v~2' hide/show children; '~1F~2' keep focused\n"
+      "          ( commands shown with '.' require a ~1visible~2 task display ~1window~2 ) \n"
       "\n"
       "%s"
-      "  ^G,K,N,U  View: ctl groups ~1^G~2; cmdline ~1^K~2; environment ~1^N~2; supp groups ~1^U~2\n"
-      "  Y,!,^E,P  Inspect '~1Y~2'; Combine Cpus '~1!~2'; Scale time ~1^E~2; View namespaces ~1^P~2\n"
-      "  W,q       Write config file '~1W~2'; Quit '~1q~2'\n"
-      "          ( commands shown with '.' require a ~1visible~2 task display ~1window~2 ) \n"
-      "Press '~1h~2' or '~1?~2' for help with ~1Windows~2,\n"
+      "  Y,^E      Inspect a task '~1Y~2'; Scale process time '~1^E~2'\n"
+      "  !,^       Progressively Combine Cpus '~1!~2'; Display Cores vs. Cpus '~1^~2' \n"
+      "  W         Write config file '~1W~2'\n"
+      "\n"
+      "Press '~1h~2' for help with ~1Specialized~2 keys, '~1H~2' for help with ~1Windows~2,\n"
       "Type 'q' or <Esc> to continue ");
+
+   Uniq_nlstab[SPECIAL_help_fmt] = _(""
+      "Help for Specialized Keys - %s\n"
+      "\n"
+      "These keys invoke a separate window at the bottom of the screen while normal\n"
+      "top monitoring continues uninterrupted. Keying the same '~1Ctrl~2' command a\n"
+      "second time removes that separate window as does the '~1=~2' command.\n"
+      "\n"
+      "The following are applied to the 1st task displayed. The Up/Down ~1arrow keys~2\n"
+      "will be important in choosing a target process as is a more stable display\n"
+      "like forest view or a sort on PID or a larger delay interval.\n"
+      "   ~1^A~6   Display Capabilities          (Ctrl key + 'a')\n"
+      "   ~1^G~6   Display Control Groups        (Ctrl key + 'g')\n"
+      "   ~1^K~6   Display Cmdline               (Ctrl key + 'k')\n"
+      "   ~1^N~6   Display Environment           (Ctrl key + 'n')\n"
+      "   ~1^P~6   Display Namesspaces           (Ctrl key + 'p')\n"
+      "   ~1^U~6   Display Supplementary Groups  (Ctrl key + 'u')\n"
+      "\n"
+      "The 'Ctrl+L' command is not associated with a specific task. Rather, up to\n"
+      "10 of the most recent messages issued by top are recalled for review.\n"
+      "   ~1^L~6  :Display Logged Messages       (Ctrl key + 'l')\n"
+      "\n"
+      "The Tab key (forward) or Shift+Tab combination (backward) can be used to\n"
+      "highlight individual elements being displayed in the bottom window.\n"
+      "\n"
+      "Type 'q' or <Esc> to continue ");
+
 
    Uniq_nlstab[WINDOWS_help_fmt] = _(""
       "Help for Windows / Field Groups~2 - \"Current Window\" = ~1 %s ~6\n"
@@ -704,8 +736,8 @@ static void build_uniq_nlstab (void) {
       " ~1*~4  = , +   . Rebalance tasks:  '~1=~5' ~1Current~2 window; '~1+~5' ~1Every~2 window\n"
       "              (this also forces the ~1current~2 or ~1every~2 window to become visible)\n"
       "\n"
-      "In '~1A~2' mode, '~1*~4' keys are your ~1essential~2 commands.  Please try the '~1a~2' and '~1w~2'\n"
-      "commands plus the 'g' sub-commands NOW.  Press <Enter> to make 'Current' ");
+      "In '~1A~2' mode, '~1*~4' keys are your ~1essential~2 commands.  Please try the 'a' and 'w'\n"
+      "commands or the 'g' command numbers NOW.  Press <Enter> to make 'Current' ");
 
 /* Translation Notes ------------------------------------------------
    .  The following 'Help for color mapping' simulated screen should
@@ -746,7 +778,7 @@ static void build_uniq_nlstab (void) {
    .                 also embedded in the translatable text (along with escape seqs)
    .                 should never themselves be translated. */
    Uniq_nlstab[KEYS_helpext_fmt] = _(""
-      "  d,k,r,^R '~1d~2' set delay; '~1k~2' kill; '~1r~2' renice; ~1Ctrl~2+'~1R~2' renice autogroup\n");
+      "  d,k,r,^R  Set delay '~1d~2'; Kill '~1k~2'; Renice '~1r~2; Renice autogroup '~1Ctrl~2+'~1R~2'\n");
 
 /* Translation Hint:
    .  This Fields Management header should be 3 lines long so as

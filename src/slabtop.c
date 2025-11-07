@@ -196,18 +196,18 @@ static void parse_opts (int argc, char **argv)
             break;
         case 'd':
             if (Run_once)
-                xerrx(EXIT_FAILURE, _("Cannot combine -d and -o options"));
+                errx(EXIT_FAILURE, _("Cannot combine -d and -o options"));
             errno = 0;
             Delay = strtol_or_err(optarg, _("illegal delay"));
             if (Delay < 1)
-                xerrx(EXIT_FAILURE, _("delay must be positive integer"));
+                errx(EXIT_FAILURE, _("delay must be positive integer"));
             break;
         case 's':
             set_sort_stuff(optarg[0]);
             break;
         case 'o':
             if (Delay != 0)
-                xerrx(EXIT_FAILURE, _("Cannot combine -d and -o options"));
+                errx(EXIT_FAILURE, _("Cannot combine -d and -o options"));
             Run_once=1;
             break;
         case 'V':
@@ -244,7 +244,7 @@ static void print_summary (void)
     struct slabinfo_stack *p;
 
     if (!(p = procps_slabinfo_select(Slab_info, items, MAXTBL(items))))
-        xerrx(EXIT_FAILURE, _("Error getting slab summary results"));
+        errx(EXIT_FAILURE, _("Error getting slab summary results"));
 
     PRINT_line(" %-35s: %u / %u (%.1f%%)\n"
                , /* Translation Hint: Next five strings must not
@@ -286,13 +286,13 @@ static void print_headings (void)
 {
     /* Translation Hint: Please keep alignment of the
      * following intact. */
-    PRINT_line("%-78s\n", _("  OBJS ACTIVE  USE OBJ SIZE  SLABS OBJ/SLAB CACHE SIZE NAME"));
+    PRINT_line("%-80s\n", _("    OBJS   ACTIVE  USE OBJ SIZE  SLABS OBJ/SLAB CACHE SIZE NAME"));
 }
 
 static void print_details (struct slabinfo_stack *stack)
 {
  #define nodeVAL(e,t) SLABINFO_VAL(e, t, stack)
-    PRINT_line("%6u %6u %3u%% %7.2fK %6u %8u %10s %-23s\n"
+    PRINT_line("%8u %8u %3u%% %7.2fK %6u %8u %10s %-23s\n"
         , nodeVAL(nod_OBJS,  u_int)
         , nodeVAL(nod_AOBJS, u_int)
         , nodeVAL(nod_USE,   u_int)
@@ -323,12 +323,12 @@ int main(int argc, char *argv[])
     parse_opts(argc, argv);
 
     if (procps_slabinfo_new(&Slab_info) < 0)
-        xerr(EXIT_FAILURE, _("Unable to create slabinfo structure"));
+        err(EXIT_FAILURE, _("Unable to create slabinfo structure"));
 
     if (!Run_once) {
         is_tty = isatty(STDIN_FILENO);
         if (is_tty && tcgetattr(STDIN_FILENO, &Saved_tty) == -1)
-            xwarn(_("terminal setting retrieval"));
+            warn(_("terminal setting retrieval"));
         old_rows = Rows;
         term_resize(0);
         initscr();
@@ -344,13 +344,13 @@ int main(int argc, char *argv[])
         int i;
 
         if (!(reaped = procps_slabinfo_reap(Slab_info, Node_items, MAXTBL(Node_items)))) {
-            xwarn(_("Unable to get slabinfo node data"));
+            warn(_("Unable to get slabinfo node data"));
             rc = EXIT_FAILURE;
             break;
         }
 
         if (!(procps_slabinfo_sort(Slab_info, reaped->stacks, reaped->total, Sort_item, Sort_Order))) {
-            xwarn(_("Unable to sort slab nodes"));
+            warn(_("Unable to sort slab nodes"));
             rc = EXIT_FAILURE;
             break;
         }

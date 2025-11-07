@@ -1,6 +1,6 @@
 /* top.h - Header file:         show Linux processes */
 /*
- * Copyright © 2002-2024 Jim Warner <james.warner@comcast.net
+ * Copyright © 2002-2025 Jim Warner <james.warner@comcast.net
  *
  * This file may be used subject to the terms and conditions of the
  * GNU Library General Public License Version 2, or any later version
@@ -120,7 +120,7 @@ char *strcasestr(const char *haystack, const char *needle);
         /* Length of time a message is displayed and the duration
            of a 'priming' wait during library startup (in microseconds) */
 #define MSG_USLEEP  1250000
-#define LIB_USLEEP  100000
+#define LIB_USLEEP  200000
 
         /* Specific process id monitoring support (command line only) */
 #define MONPIDMAX  20
@@ -190,10 +190,6 @@ char *strcasestr(const char *haystack, const char *needle);
 #define kbd_CtrlP  '\020'
 #define kbd_CtrlR  '\022'
 #define kbd_CtrlU  '\025'
-
-        /* Special value in Pseudo_row to force an additional procs refresh
-           -- used at startup and for task/thread mode transitions */
-#define PROC_XTRA  -1
 
 
 /* #####  Enum's and Typedef's  ############################################ */
@@ -329,8 +325,9 @@ typedef struct RCW_t {  // the 'window' portion of an rcfile
           graph_cpus,             // 't' - View_STATES supplementary vals
           graph_mems,             // 'm' - View_MEMORY supplememtary vals
           double_up,              // '4' - show multiple cpus on one line
-          combine_cpus,           // '!' - keep combining additional cpus
           core_types,             // '5' - show/filter P-core/E-core cpus
+          combine_cpus,           // '!' - keep combining additional cpus
+          cores_vs_cpus,          // '^' - show cores versus cpus/threads
           summclr,                // a colors 'number' used for summ info
           msgsclr,                //             "           in msgs/pmts
           headclr,                //             "           in cols head
@@ -536,8 +533,9 @@ typedef struct WIN_t {
         // ( transitioned from 'char' to 'int' )
 #define RCF_XFORMED_ID  'k'
         // this next guy is incremented when columns change
+        // or anything is added to the RCW_t/RCF_t typedefs
         // ( to prevent older top versions from accessing )
-#define RCF_VERSION_ID  'm'
+#define RCF_VERSION_ID  'n'
 
 #define FLD_OFFSET  ( (int)'%' )
 #define FLD_ROWMAX  20
@@ -595,16 +593,16 @@ typedef struct WIN_t {
         /* The default values for the local config file */
 #define DEF_RCFILE { \
    RCF_VERSION_ID, 0, 1, DEF_DELAY, 0, { \
-   { EU_CPU, DEF_WINFLGS, 0, DEF_GRAPHS2, 1, 0, 0, \
+   { EU_CPU, DEF_WINFLGS, 0, DEF_GRAPHS2, 1, 0, 0, 0, \
       COLOR_RED, COLOR_RED, COLOR_YELLOW, -1, COLOR_RED, \
       "Def", DEF_FIELDS }, \
-   { EU_PID, ALT_WINFLGS, 0, ALT_GRAPHS2, 1, 0, 0, \
+   { EU_PID, ALT_WINFLGS, 0, ALT_GRAPHS2, 1, 0, 0, 0, \
       COLOR_CYAN, COLOR_CYAN, COLOR_WHITE, -1, COLOR_CYAN, \
       "Job", JOB_FIELDS }, \
-   { EU_MEM, ALT_WINFLGS, 0, ALT_GRAPHS2, 1, 0, 0, \
+   { EU_MEM, ALT_WINFLGS, 0, ALT_GRAPHS2, 1, 0, 0, 0, \
       COLOR_MAGENTA, COLOR_MAGENTA, COLOR_BLUE, -1, COLOR_MAGENTA, \
       "Mem", MEM_FIELDS }, \
-   { EU_UEN, ALT_WINFLGS, 0, ALT_GRAPHS2, 1, 0, 0, \
+   { EU_UEN, ALT_WINFLGS, 0, ALT_GRAPHS2, 1, 0, 0, 0, \
       COLOR_YELLOW, COLOR_YELLOW, COLOR_GREEN, -1, COLOR_YELLOW, \
       "Usr", USR_FIELDS } \
    }, 0, DEF_SCALES2, 0, 0 }
@@ -622,6 +620,9 @@ typedef struct WIN_t {
 #endif
 #if (LRGBUFSIZ < SCREENMAX)
 # error 'LRGBUFSIZ' must NOT be less than 'SCREENMAX'
+#endif
+#if defined(PRETENDECORE) && defined(CORE_TYPE_NO)
+# error 'PRETENDECORE' conflicts with 'CORE_TYPE_NO'
 #endif
 #if defined(TERMIOS_ONLY)
 # warning 'TERMIOS_ONLY' disables input recall and makes man doc incorrect
@@ -708,6 +709,7 @@ typedef struct WIN_t {
 //atic void         *cpus_refresh (void *unused);
 //atic void         *memory_refresh (void *unused);
 //atic void         *tasks_refresh (void *unused);
+//atic void          usleep_refresh (void);
 /*------  Inspect Other Output  ------------------------------------------*/
 //atic void          insp_cnt_nl (void);
 #ifndef INSP_OFFDEMO
@@ -779,6 +781,7 @@ typedef struct WIN_t {
 //atic inline int    sum_see (const char *str, int nobuf);
 //atic int           sum_tics (struct stat_stack *this, const char *pfx, int nobuf);
 //atic int           sum_unify (struct stat_stack *this, int nobuf);
+//atic int           sum_versus (void);
 /*------  Secondary summary display support (summary_show helpers)  ------*/
 //atic void          do_cpus (void);
 //atic void          do_memory (void);

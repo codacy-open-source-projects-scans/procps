@@ -72,7 +72,7 @@ PROCPS_EXPORT int procps_capmask_names(
         strcpy(str, "-");
         return 1;
     }
-    
+
     if (mask_in == FULL_CAP_MASK) {
         size_t namelen;
         namelen = strlen(FULL_CAP);
@@ -88,7 +88,7 @@ PROCPS_EXPORT int procps_capmask_names(
     {
         if (capability_isset(mask_in, i)) {
             if (cap_names[i] != NULL) { // We have a name for this capability
-                int namelen;
+                size_t namelen;
                 namelen = strlen(cap_names[i]);
                 if (namelen+1 >= size) {
                     strcpy(c, "+");
@@ -99,7 +99,7 @@ PROCPS_EXPORT int procps_capmask_names(
                     namelen = snprintf(c, size, (c==str)?"%s":",%s",
                             cap_names[i]);
                     size -= namelen;
-                    c+= namelen;
+                    c += namelen;
                 }
             }
         }

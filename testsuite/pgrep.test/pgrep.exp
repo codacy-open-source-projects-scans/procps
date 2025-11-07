@@ -63,6 +63,14 @@ set test "pgrep find oldest test pid"
 spawn $pgrep -o $testproc_comm
 expect_pass "$test" "^$testproc1_pid\\s*$"
 
+set test "prep with matching pid"
+spawn $pgrep -p $testproc1_pid
+expect_pass "$test" "^$testproc1_pid\\s*$"
+
+set test "pgrep pid and pidfile opption conflict"
+spawn $pgrep -p 42 -F /dev/null
+expect_pass "$test" "^pgrep: Cannot use pidfile and pid option together"
+
 set test "pgrep matches with parent pid"
 spawn $pgrep -P $mypid $testproc_comm
 expect_pass "$test" "^$testproc1_pid\\s+$testproc2_pid\\s*$"
@@ -128,4 +136,34 @@ spawn $pgrep gnome-session-bi
 expect_pass "$test" "pattern that searches for process name longer than 15 characters will result in zero matches"
 
 # Cleanup
+kill_testproc
+
+make_testproc "foo bar"
+
+set test "pgrep shell quote for process name with spaces"
+spawn $pgrep -Ql "foo bar"
+expect_pass "$test" "'foo bar'"
+
+kill_testproc
+
+make_testproc "foobar"
+
+set test "pgrep shell quote for process name without spaces"
+spawn $pgrep -Ql "foobar"
+expect_pass "$test" {[^']foobar}
+
+kill_testproc
+
+make_testproc ""
+
+set pidfile [exec mktemp]
+set fh [open $pidfile w]
+puts $fh $testproc1_pid
+close $fh
+
+set test "pgrep shell quote for zero-length process name"
+spawn $pgrep -QlF $pidfile
+expect_pass "$test" "''"
+
+file delete $pidfile
 kill_testproc

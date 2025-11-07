@@ -46,7 +46,6 @@
 
 //#define UNREF_RPTHASH                // report hash details at uref() time
 
-#define FILL_ID_MAX  255               // upper limit with select of pid/uid
 #define STACKS_INIT  1024              // amount of initial stack allocation
 #define STACKS_GROW  128               // amount reap stack allocations grow
 #define NEWOLD_INIT  1024              // amount for initial hist allocation
@@ -100,15 +99,18 @@ struct pids_info {
     proc_t fetch_proc;                 // the proc_t used by pids_stacks_fetch
     SET_t *func_array;                 // extracted Item_table 'setsfunc' pointers
     int containers_yes;                // need to call pids_containers_check
+    unsigned *select_ids;              // copy of user 'these' (pids/uids)
 };
 
 
 // ___ Free Storage Support |||||||||||||||||||||||||||||||||||||||||||||||||||
 
+extern char *str_none;
+
 #define freNAME(t) free_pids_ ## t
 
 static void freNAME(str) (struct pids_result *R) {
-    if (R->result.str) free(R->result.str);
+    if (R->result.str && R->result.str != str_none) free(R->result.str);
 }
 
 static void freNAME(strv) (struct pids_result *R) {
@@ -906,8 +908,8 @@ static void pids_containers_check (void) {
     if (!sav_secs)
        sav_secs = cur_secs;
     else if (oneDAY <= (cur_secs - sav_secs)) {
-        lxc_containers(NULL, NULL);
-        docker_containers(NULL, NULL);
+        lxc_containers(NULL);
+        docker_containers(NULL);
         sav_secs = cur_secs;
     }
     return;
@@ -1067,10 +1069,12 @@ static inline void pids_libflags_set (
         info->oldflags |= Item_table[e].oldflags;
         info->history_yes |= Item_table[e].needhist;
     }
-    if (info->oldflags & f_either) {
-        if (!(info->oldflags & (f_stat | f_status)))
-            info->oldflags |= f_stat;
-    }
+//  note: the read of f_stat has been made unconditional in readproc.c
+//        so this logic is no longer useful ...
+//  if (info->oldflags & f_either) {
+//      if (!(info->oldflags & (f_stat | f_status)))
+//          info->oldflags |= f_stat;
+//  }
     info->containers_yes = info->oldflags & (f_lxc | z_docker);
     return;
 } // end: pids_libflags_set
@@ -1449,6 +1453,9 @@ PROCPS_EXPORT int procps_pids_unref (
         if ((*info)->func_array)
             free((*info)->func_array);
 
+        if ((*info)->select_ids)
+            free((*info)->select_ids);
+
         numa_uninit();
 
         free(*info);
@@ -1639,14 +1646,13 @@ PROCPS_EXPORT struct pids_fetch *procps_pids_select (
         int numthese,
         enum pids_select_type which)
 {
-    unsigned ids[FILL_ID_MAX + 1];
     struct timespec ts;
     int rc;
 
     errno = EINVAL;
     if (info == NULL || these == NULL)
         return NULL;
-    if (numthese < 1 || numthese > FILL_ID_MAX)
+    if (numthese < 1)
         return NULL;
     if ((which != PIDS_SELECT_PID && which != PIDS_SELECT_UID)
     && ((which != PIDS_SELECT_PID_THREADS && which != PIDS_SELECT_UID_THREADS)))
@@ -1660,11 +1666,13 @@ PROCPS_EXPORT struct pids_fetch *procps_pids_select (
     if (info->containers_yes)
         pids_containers_check();
 
-    // this zero delimiter is really only needed with PIDS_SELECT_PID
-    memcpy(ids, these, sizeof(unsigned) * numthese);
-    ids[numthese] = 0;
+    // the zero delimiter is really only needed with PIDS_SELECT_PID
+    if (!(info->select_ids = realloc(info->select_ids, sizeof(unsigned) * (numthese + 1))))
+        return NULL;
+    memcpy(info->select_ids, these, sizeof(unsigned) * numthese);
+    info->select_ids[numthese] = 0;
 
-    if (!pids_oldproc_open(&info->fetch_PT, (info->oldflags | which), ids, numthese))
+    if (!pids_oldproc_open(&info->fetch_PT, (info->oldflags | which), info->select_ids, numthese))
         return NULL;
     info->read_something = (which & PIDS_FETCH_THREADS_TOO) ? readeither : readproc;
 

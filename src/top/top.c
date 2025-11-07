@@ -1,6 +1,6 @@
 /* top.c - Source file:         show Linux processes */
 /*
- * Copyright © 2002-2024 Jim Warner <james.warner@comcast.net
+ * Copyright © 2002-2025 Jim Warner <james.warner@comcast.net
  *
  * This file may be used subject to the terms and conditions of the
  * GNU Library General Public License Version 2, or any later version
@@ -82,6 +82,7 @@ static sigset_t Sigwinch_set;
         /* The 'local' config file support */
 static char  Rc_name [OURPATHSZ];
 static RCF_t Rc = DEF_RCFILE;
+static RCF_t Rc_virgin = DEF_RCFILE;
 static int   Rc_questions;
 static int   Rc_compatibilty;
 
@@ -179,7 +180,7 @@ static int   Cap_can_goto = 0;
            The Stdout_buf is transparent to our code and regardless of whose
            buffer is used, stdout is flushed at frame end or if interactive. */
 static char  *Pseudo_screen;
-static int    Pseudo_row = PROC_XTRA;
+static int    Pseudo_row;
 static size_t Pseudo_size;
 #ifndef OFF_STDIOLBF
         // less than stdout's normal buffer but with luck mostly '\n' anyway
@@ -282,6 +283,7 @@ static struct pids_fetch *Pids_reap;        // for reap or select
 static struct stat_info *Stat_ctx;
 static struct stat_reaped *Stat_reap;
 static enum stat_item Stat_items[] = {
+   STAT_TIC_ID_CORE,
    STAT_TIC_ID,             STAT_TIC_NUMA_NODE,
    STAT_TIC_DELTA_USER,     STAT_TIC_DELTA_SYSTEM,
    STAT_TIC_DELTA_NICE,     STAT_TIC_DELTA_IDLE,
@@ -294,6 +296,7 @@ static enum stat_item Stat_items[] = {
    STAT_TIC_SUM_DELTA_TOTAL, STAT_TIC_TYPE_CORE };
 #endif
 enum Rel_statitems {
+   stat_COR_ID,
    stat_ID, stat_NU,
    stat_US, stat_SY,
    stat_NI, stat_IL,
@@ -1874,17 +1877,20 @@ static const char *scale_tics (TIC_t tics, int width, int justr, int target) {
             if (width >= snprintf(buf, sizeof(buf), "%lu:%02lu.%02lu", mins, secs % 60, cent))
                goto end_justifies;
          }
-      case TICS_AS_MINS:                        // fall through
+      // fall through
+      case TICS_AS_MINS:
          if (mins < mmLIMIT + 1) {
             if (width >= snprintf(buf, sizeof(buf), "%lu:%02lu", mins, secs % 60))
                goto end_justifies;
          }
-      case TICS_AS_HOUR:                        // fall through
+      // fall through
+      case TICS_AS_HOUR:
          if (hour < hhLIMIT + 1) {
             if (width >= snprintf(buf, sizeof(buf), "%lu,%02lu", hour, mins % 60))
                goto end_justifies;
          }
-      case TICS_AS_DAY1:                        // fall through
+      // fall through
+      case TICS_AS_DAY1:
          if (days < ddLIMIT + 1) {
             if (width >= snprintf(buf, sizeof(buf), DD "+" HH, days, hour % 24))
                goto end_justifies;
@@ -1892,21 +1898,24 @@ static const char *scale_tics (TIC_t tics, int width, int justr, int target) {
             if (width >= snprintf(buf, sizeof(buf), DD "+%lu", days, hour % 24))
                goto end_justifies;
 #endif
-      case TICS_AS_DAY2:                        // fall through
+      case TICS_AS_DAY2:
             if (width >= snprintf(buf, sizeof(buf), DD, days))
                goto end_justifies;
          }
-      case TICS_AS_WEEK:                        // fall through
+      // fall through
+      case TICS_AS_WEEK:
          if (width >= snprintf(buf, sizeof(buf), WW "+" DD, week, days % 7))
             goto end_justifies;
 #ifdef SCALE_POSTFX
          if (width >= snprintf(buf, sizeof(buf), WW "+%lu", week, days % 7))
             goto end_justifies;
 #endif
-      case TICS_AS_LAST:                        // fall through
+      // fall through
+      case TICS_AS_LAST:
          if (width >= snprintf(buf, sizeof(buf), WW, week))
             goto end_justifies;
-      default:                                  // fall through
+      // fall through
+      default:
          break;
    }
  #undef mmLIMIT
@@ -2882,6 +2891,20 @@ static void *tasks_refresh (void *unused) {
  #undef nALGN2
  #undef n_reap
 } // end: tasks_refresh
+
+
+        /*
+         * This guy is available to effectively force a task priming read then
+         * wait LIB_USLEEP to avoid delta value distortions in the next frame. */
+static void usleep_refresh (void) {
+#ifdef THREADED_TSK
+   sem_post(&Semaphore_tasks_beg);
+   sem_wait(&Semaphore_tasks_end);
+#else
+   tasks_refresh(NULL);
+#endif
+   usleep(LIB_USLEEP);
+} // end: usleep_refresh
 
 /*######  Inspect Other Output  ##########################################*/
 
@@ -3695,8 +3718,8 @@ static void before (char *me) {
       behavior but we can't exploit that since we don't follow a normal
       ld route to symbol resolution (we use that dlopen() guy instead)! */
    Stderr_save = dup(fileno(stderr));
-   if (-1 < Stderr_save && freopen("/dev/null", "w", stderr))
-      ;                           // avoid -Wunused-result
+   if (-1 < Stderr_save)
+      freopen("/dev/null", "w", stderr);
 #endif
 
    // establish some cpu particulars
@@ -3769,13 +3792,11 @@ static void before (char *me) {
       error_exit(fmtmk(N_fmt(X_THREADINGS_fmt), __LINE__, strerror(errno)));
    pthread_setname_np(Thread_id_tasks, "update tasks");
 #endif
+
    // lastly, establish support for graphing cpus & memory
    Graph_cpus = alloc_c(sizeof(struct graph_parms));
    Graph_mems = alloc_c(sizeof(struct graph_parms));
  #undef doALL
-
-   // don't distort startup cpu(s) display ...
-   usleep(LIB_USLEEP);
 } // end: before
 
 
@@ -4014,19 +4035,21 @@ static int config_wins (FILE *fp, char *buf, int wix) {
 
    if (1 != fscanf(fp, "%3s\tfieldscur=", w->rc.winname))
       return 0;
-   if (Rc.id < RCF_XFORMED_ID)
-      fscanf(fp, "%s\n", buf );
-   else {
-      for (x = 0; ; x++)
+   if (Rc.id < RCF_XFORMED_ID) {
+      fscanf(fp, "%100s\n", buf );               // buf size = LRGBUFSIZ (512)
+      if (strlen(buf) >= sizeof(CVT_FORMER))     // but if we exceed max of 86
+         return 0;                               // that rc file was corrupted
+   } else {
+      for (x = 0; x < PFLAGSSIZ; x++)
          if (1 != fscanf(fp, "%d", &w->rc.fieldscur[x]))
             break;
    }
 
    // be tolerant of missing release 3.3.10 graph modes additions
    if (3 > fscanf(fp, "\twinflags=%d, sortindx=%d, maxtasks=%d, graph_cpus=%d, graph_mems=%d"
-                      ", double_up=%d, combine_cpus=%d, core_types=%d\n"
+                      ", double_up=%d, combine_cpus=%d, core_types=%d, cores_vs_cpus=%d\n"
       , &w->rc.winflags, &w->rc.sortindx, &w->rc.maxtasks, &w->rc.graph_cpus, &w->rc.graph_mems
-      , &w->rc.double_up, &w->rc.combine_cpus, &w->rc.core_types))
+      , &w->rc.double_up, &w->rc.combine_cpus, &w->rc.core_types, &w->rc.cores_vs_cpus))
          return 0;
    if (w->rc.sortindx < 0 || w->rc.sortindx >= EU_MAXPFLGS)
       return 0;
@@ -4043,6 +4066,8 @@ static int config_wins (FILE *fp, char *buf, int wix) {
       return 0;
    if (w->rc.core_types < 0 || w->rc.core_types > E_CORES_ONLY)
       return 0;
+   if (w->rc.cores_vs_cpus < 0 || w->rc.cores_vs_cpus > 1)
+      return 0;
 
    // 4 colors through release 4.0.4, 5 colors after ...
    if (4 > fscanf(fp, "\tsummclr=%d, msgsclr=%d, headclr=%d, taskclr=%d, task_xy=%d\n"
@@ -4056,35 +4081,43 @@ static int config_wins (FILE *fp, char *buf, int wix) {
    if (w->rc.task_xy < -1 || w->rc.task_xy > 255) return 0;
 
    switch (Rc.id) {
-      case 'a':                          // 3.2.8 (former procps)
+      case 'a':                          // this is release 3.2.8 (procps)
       // fall through
-      case 'f':                          // 3.3.0 thru 3.3.3 (ng)
+      case 'f':                          // releases 3.3.0 thru 3.3.3 (procps-ng)
          SETw(w, Show_JRNUMS);
       // fall through
-      case 'g':                          // from 3.3.4 thru 3.3.8
+      case 'g':                          // releases 3.3.4 thru 3.3.8
          if (Rc.id > 'a') scat(buf, RCF_PLUS_H);
       // fall through
       case 'h':                          // this is release 3.3.9
-         w->rc.graph_cpus = w->rc.graph_mems = 0;
+         /* the following simple assignmentas have been commented out
+            since that 'Rc' RCF_t has alreeady effectively done that.
+            ( they will now just document when they were introduced ) */
+//       w->rc.graph_cpus = w->rc.graph_mems = 0;
          // these next 2 are really global, but best documented here
-         Rc.summ_mscale = Rc.task_mscale = SK_Kb;
+//       Rc.summ_mscale = SK_Gb;
+//       Rc.task_mscale = SK_Mb;
       // fall through
       case 'i':                          // from 3.3.10 thru 3.3.16
          if (Rc.id > 'a') scat(buf, RCF_PLUS_J);
-         w->rc.double_up = w->rc.combine_cpus = 0;
+//       w->rc.double_up = w->rc.combine_cpus = 0;
       // fall through
       case 'j':                          // this is release 3.3.17
          if (cfg_xform(w, buf, def_flds[wix]))
             return 0;
-         Rc.tics_scaled = 0;
+//       Rc.tics_scaled = 0;                added in 4.0.0
+//       w->rc.core_types = 0;              added in 4.0.1
       // fall through
       case 'k':                          // releases 4.0.1 thru 4.0.4
       // fall through                       ( transitioned to integer )
       case 'l':                          // no release, development only
-         w->rc.task_xy = w->rc.taskclr;
+//       w->rc.task_xy = w->rc.taskclr;     added in 4.0.5
       // fall through
-      case 'm':                          // current RCF_VERSION_ID
-      // fall through                       ( added rc.task_xy )
+      case 'm':                          // this is release 4.0.5
+//       w->rc.cores_vs_cpus = 0;           added in 4.0.6
+      // fall through
+      case 'n':                          // current RCF_VERSION_ID
+      // fall through
       default:
          if (mlen(w->rc.fieldscur) < EU_MAXPFLGS)
             return 0;
@@ -4272,9 +4305,8 @@ system_default:
 
 default_or_error:
 #ifdef RCFILE_NOERR
-{  RCF_t rcdef = DEF_RCFILE;
-   int i;
-   Rc = rcdef;
+{  int i;
+   Rc = Rc_virgin;
    for (i = 0 ; i < GROUPSMAX; i++)
       Winstk[i].rc  = Rc.win[i];
 }
@@ -4291,8 +4323,9 @@ default_or_error:
          *       overridden -- we'll force some on and negate others in our
          *       best effort to honor the loser's (oops, user's) wishes... */
 static void parse_args (int argc, char **argv) {
-    static const char sopts[] = "bcd:E:e:Hhin:Oo:p:SsU:u:Vw::1";
+    static const char sopts[] = "Abcd:E:e:Hhin:Oo:p:SsU:u:Vw::1";
     static const struct option lopts[] = {
+       { "apply-defaults",    no_argument,       NULL, 'A' },
        { "batch-mode",        no_argument,       NULL, 'b' },
        { "cmdline-toggle",    no_argument,       NULL, 'c' },
        { "delay",             required_argument, NULL, 'd' },
@@ -4337,11 +4370,23 @@ static void parse_args (int argc, char **argv) {
 #endif
       switch (ch) {
          case '1':   // ensure behavior identical to run-time toggle
-            if (CHKw(Curwin, View_CPUNOD)) OFFw(Curwin, View_CPUSUM);
-            else TOGw(Curwin, View_CPUSUM);
-            OFFw(Curwin, View_CPUNOD);
             SETw(Curwin, View_STATES);
+            OFFw(Curwin, View_CPUNOD);
+            TOGw(Curwin, View_CPUSUM);
+            Curwin->rc.core_types = 0;
+            Curwin->rc.combine_cpus = 0;
+            Curwin->rc.cores_vs_cpus = 0;
             break;
+         case 'A':
+            if (argc > 2)
+               error_exit(fmtmk(N_fmt(XTRA_args_no_fmt), argv[optind - 1]));
+            tmp_delay = Rc.delay_time;  // just in case /etc/toprc is prseent ...
+            Rc = Rc_virgin;
+            for (i = 0 ; i < GROUPSMAX; i++)
+               Winstk[i].rc = Rc.win[i];
+            Curwin = &Winstk[Rc.win_index];
+            if (Secure_mode) Rc.delay_time = tmp_delay;
+            return;
          case 'b':
             Batch = 1;
             break;
@@ -4402,6 +4447,7 @@ static void parse_args (int argc, char **argv) {
                if (Monpidsidx >= MONPIDMAX)
                   error_exit(fmtmk(N_fmt(LIMIT_exceed_fmt), MONPIDMAX));
                if (1 != sscanf(cp, "%d", &pid)
+               || pid < 0
                || strpbrk(cp, "+-."))
                   error_exit(fmtmk(N_fmt(BAD_mon_pids_fmt), cp));
                if (!pid) pid = getpid();
@@ -4563,8 +4609,8 @@ static void win_names (WIN_t *q, const char *name) {
    /* note: sprintf/snprintf results are "undefined" when src==dst,
             according to C99 & POSIX.1-2001 (thanks adc) */
    if (q->rc.winname != name)
-      snprintf(q->rc.winname, sizeof(q->rc.winname), "%s", name);
-   snprintf(q->grpname, sizeof(q->grpname), "%d:%s", q->winnum, name);
+      snprintf(q->rc.winname, sizeof(q->rc.winname), "%.3s", name);
+   snprintf(q->grpname, sizeof(q->grpname), "%d:%.3s", q->winnum, name);
 } // end: win_names
 
 
@@ -4583,6 +4629,7 @@ static void win_reset (WIN_t *q) {
          q->findstr[0] = '\0';
          q->rc.combine_cpus = 0;
          q->rc.core_types = 0;
+         q->rc.cores_vs_cpus = 0;
 
          // these next guys are global, not really windows based
          Monpidsidx = 0;
@@ -5151,7 +5198,8 @@ static int bot_focus_str (const char *hdr, const char *str) {
  #define maxRSVD ( Screen_rows - 1 )
    char *beg, *end;
    char tmp[BIGBUFSIZ];
-   int n, x;
+   size_t n;
+   int x;
 
    if (hdr) {
       // we're a little careless with overhead here (it's a one time cost)
@@ -5201,7 +5249,8 @@ static int bot_focus_strv (const char *hdr, const char **strv) {
  #define maxRSVD ( Screen_rows - 1 )
    static int nsav;
    char tmp[SCREENMAX], *p;
-   int i, n, x;
+   size_t n;
+   int i, x;
 
    if (hdr) {
       // we're a little careless with overhead here (it's a one time cost)
@@ -5213,7 +5262,7 @@ static int bot_focus_strv (const char *hdr, const char **strv) {
          strcpy(Bot_buf, N_txt(X_BOT_nodata_txt));
       for (nsav= 0, p = Bot_buf, x = 0; strv[nsav] != NULL; nsav++) {
          p += strlen(strv[nsav]) + 1;
-         if ((p - Bot_buf) >= sizeof(Bot_buf))
+         if ((size_t)(p - Bot_buf) >= sizeof(Bot_buf))
             break;
          x += utf8_delta(strv[nsav]);
       }
@@ -5436,7 +5485,7 @@ static void help_view (void) {
    char key = 1;
 
    putp((Cursor_state = Cap_curs_huge));
-signify_that:
+signify_main:
    putp(Cap_clr_scr);
    adj_geometry();
 
@@ -5450,17 +5499,29 @@ signify_that:
    putp(Cap_clr_eos);
    fflush(stdout);
 
-   if (Frames_signal) goto signify_that;
+   if (Frames_signal) goto signify_main;
    key = iokey(IOKEY_ONCE);
-   if (key < 1) goto signify_that;
+   if (key < 1) goto signify_main;
 
    switch (key) {
-      // these keys serve the primary help screen
       case kbd_ESC: case 'q':
          break;
-      case '?': case 'h': case 'H':
+      case '?': case 'h':
          do {
 signify_this:
+            putp(Cap_clr_scr);
+            adj_geometry();
+            show_special(1, fmtmk(N_unq(SPECIAL_help_fmt)
+               , PACKAGE_STRING));
+            putp(Cap_clr_eos);
+            fflush(stdout);
+            if (Frames_signal || (key = iokey(IOKEY_ONCE)) < 1)
+               goto signify_this;
+         } while (key != kbd_ESC && key != 'q');
+         break;
+      case 'H':
+         do {
+signify_that:
             putp(Cap_clr_scr);
             adj_geometry();
             show_special(1, fmtmk(N_unq(WINDOWS_help_fmt)
@@ -5470,13 +5531,12 @@ signify_this:
             putp(Cap_clr_eos);
             fflush(stdout);
             if (Frames_signal || (key = iokey(IOKEY_ONCE)) < 1)
-               goto signify_this;
+               goto signify_that;
             else w = win_select(key);
-         // these keys serve the secondary help screen
          } while (key != kbd_ENTER && key != kbd_ESC && key != 'q');
          break;
       default:
-         goto signify_that;
+         goto signify_main;
    }
    // signal that we just corrupted entire screen
    Frames_signal = BREAK_screen;
@@ -5567,10 +5627,10 @@ static void write_rcfile (void) {
       }
       fprintf(fp, "\n");
       fprintf(fp, "\twinflags=%d, sortindx=%d, maxtasks=%d, graph_cpus=%d, graph_mems=%d"
-                  ", double_up=%d, combine_cpus=%d, core_types=%d\n"
+                  ", double_up=%d, combine_cpus=%d, core_types=%d, cores_vs_cpus=%d\n"
          , Winstk[i].rc.winflags, Winstk[i].rc.sortindx, Winstk[i].rc.maxtasks
          , Winstk[i].rc.graph_cpus, Winstk[i].rc.graph_mems, Winstk[i].rc.double_up
-         , Winstk[i].rc.combine_cpus, Winstk[i].rc.core_types);
+         , Winstk[i].rc.combine_cpus, Winstk[i].rc.core_types, Winstk[i].rc.cores_vs_cpus);
       fprintf(fp, "\tsummclr=%d, msgsclr=%d, headclr=%d, taskclr=%d, task_xy=%d\n"
          , Winstk[i].rc.summclr, Winstk[i].rc.msgsclr
          , Winstk[i].rc.headclr, Winstk[i].rc.taskclr, Winstk[i].rc.task_xy);
@@ -5705,8 +5765,8 @@ static void keys_global (int ch) {
                , Thread_mode ? N_txt(ON_word_only_txt) : N_txt(OFF_one_word_txt)));
          for (i = 0 ; i < GROUPSMAX; i++)
             Winstk[i].begtask = Winstk[i].focus_pid = 0;
-         // force an extra procs refresh to avoid %cpu distortions...
-         Pseudo_row = PROC_XTRA;
+         // do an extra procs refresh to avoid %cpu distortions...
+         usleep_refresh();
          // signal that we just corrupted entire screen
          Frames_signal = BREAK_screen;
          break;
@@ -5829,6 +5889,7 @@ static void keys_global (int ch) {
 
 static void keys_summary (int ch) {
    WIN_t *w = Curwin;             // avoid gcc bloat with a local copy
+   int i;
 
    if (Restrict_some && ch != 'C') {
       show_msg(N_txt(X_RESTRICTED_txt));
@@ -5836,33 +5897,54 @@ static void keys_summary (int ch) {
    }
    switch (ch) {
       case '!':
-         if (CHKw(w, View_CPUSUM) || CHKw(w, View_CPUNOD))
-            show_msg(N_txt(XTRA_modebad_txt));
-         else {
-            if (!w->rc.combine_cpus) w->rc.combine_cpus = 2;
-            else w->rc.combine_cpus *= 2;
-            if (w->rc.combine_cpus >= Cpu_cnt) w->rc.combine_cpus = 0;
-            w->rc.core_types = 0;
+         SETw(w, View_STATES);
+         OFFw(w, View_CPUSUM | View_CPUNOD);
+         if (!w->rc.combine_cpus) w->rc.combine_cpus = 2;
+         else w->rc.combine_cpus *= 2;
+         if (w->rc.combine_cpus >= Cpu_cnt) w->rc.combine_cpus = 0;
+         w->rc.core_types = 0;
+         w->rc.cores_vs_cpus = 0;
+         break;
+      case '^':
+#ifndef PRETEND48CPU
+         for (i = 0; i < Cpu_cnt; i++) {
+            // careful, -1 is from the library and -2 is used by sum_versus() ...
+            if (Stat_reap->cpus->stacks[i]->head[stat_COR_ID].result.s_int == -1) {
+               show_msg(N_txt(CORE_unavail_txt));
+               return;
+            }
          }
+         SETw(w, View_STATES);
+         OFFw(w, View_CPUSUM | View_CPUNOD);
+         w->rc.combine_cpus = 0;
+         w->rc.core_types = 0;
+         if (!w->rc.cores_vs_cpus) w->rc.cores_vs_cpus = 1;
+         else w->rc.cores_vs_cpus = 0;
+#else
+         show_msg(N_txt(CORE_unavail_txt));
+#endif
          break;
       case '1':
-         if (CHKw(w, View_CPUNOD)) OFFw(w, View_CPUSUM);
-         else TOGw(w, View_CPUSUM);
-         OFFw(w, View_CPUNOD);
          SETw(w, View_STATES);
-         w->rc.double_up = 0;
+         OFFw(w, View_CPUNOD);
+         TOGw(w, View_CPUSUM);
+         if (CHKw(w, View_CPUSUM)) w->rc.double_up = 0;
          w->rc.core_types = 0;
+         w->rc.combine_cpus = 0;
+         w->rc.cores_vs_cpus = 0;
          break;
       case '2':
          if (!Numa_node_tot)
             show_msg(N_txt(NUMA_nodenot_txt));
          else {
+            SETw(w, View_STATES);
             if (Numa_node_sel < 0) TOGw(w, View_CPUNOD);
             if (!CHKw(w, View_CPUNOD)) SETw(w, View_CPUSUM);
-            SETw(w, View_STATES);
             Numa_node_sel = -1;
             w->rc.double_up = 0;
             w->rc.core_types = 0;
+            w->rc.combine_cpus = 0;
+            w->rc.cores_vs_cpus = 0;
          }
          break;
       case '3':
@@ -5872,11 +5954,13 @@ static void keys_summary (int ch) {
             int num = get_int(fmtmk(N_fmt(NUMA_nodeget_fmt), Numa_node_tot -1));
             if (num > GET_NUM_NOT) {
                if (num >= 0 && num < Numa_node_tot) {
-                  Numa_node_sel = num;
-                  SETw(w, View_CPUNOD | View_STATES);
+                  SETw(w, View_STATES | View_CPUNOD);
                   OFFw(w, View_CPUSUM);
+                  Numa_node_sel = num;
                   w->rc.double_up = 0;
                   w->rc.core_types = 0;
+                  w->rc.combine_cpus = 0;
+                  w->rc.cores_vs_cpus = 0;
                } else
                   show_msg(N_txt(NUMA_nodebad_txt));
             }
@@ -5894,20 +5978,21 @@ static void keys_summary (int ch) {
          break;
 #ifndef CORE_TYPE_NO
       case '5':
-         if (!CHKw(w, View_STATES)
-         || ((CHKw(w, View_CPUSUM | View_CPUNOD))
-         || ((w->rc.combine_cpus))))
-            show_msg(N_txt(XTRA_modebad_txt));
-         else {
-            int scanned;
-            for (scanned = 0; scanned < Cpu_cnt; scanned++)
-               if (CPU_VAL(stat_COR_TYP, scanned) == E_CORE)
-                  break;
-            if (scanned < Cpu_cnt) {
-               w->rc.core_types += 1;
-               if (w->rc.core_types > E_CORES_ONLY)
-                  w->rc.core_types = 0;
-           } else w->rc.core_types = 0;
+         for (i = 0; i < Cpu_cnt; i++) {
+            if (CPU_VAL(stat_COR_TYP, i) == E_CORE)
+               break;
+         }
+         if (i < Cpu_cnt) {
+            SETw(w, View_STATES);
+            OFFw(w, View_CPUSUM | View_CPUNOD);
+            w->rc.combine_cpus = 0;
+            w->rc.core_types += 1;
+            if (w->rc.core_types > E_CORES_ONLY)
+               w->rc.core_types = 0;
+            w->rc.cores_vs_cpus = 0;
+         } else {
+             w->rc.core_types = 0;
+             show_msg(N_txt(CORE_type_no_txt));
          }
          break;
 #endif
@@ -6498,6 +6583,57 @@ static int sum_unify (struct stat_stack *this, int nobuf) {
    return 0;
  #undef rSv
 } // end: sum_unify
+
+
+        /*
+         * Cpu *Helper* function that will consolidate threads as a cpu core |
+         * in our effort to reduce the total number of processors displayed. | */
+static int sum_versus (void) {
+ // a stat_COR_ID of -1 is from the library so we'll use -2 to denote 'ignore'
+ #define gotTHIS -2
+  // a tailored 'results stack value' extractor macro that allows assigment
+ #define rXv(E,T,X)  Stat_reap->cpus->stacks[X]->head[E].result.T
+   static struct stat_result stack[MAXTBL(Stat_items)];
+   static struct stat_stack core = { &stack[0] };
+   int a_core, found, i, j, n;
+   char pfx[16];
+
+   n = found = 0;
+   for (i = 0; i < Cpu_cnt; i++) {
+      if (rXv(stat_COR_ID, s_int, i) == gotTHIS)
+         continue;
+      a_core = rXv(stat_COR_ID, s_int, i);
+      memset(&stack, 0, sizeof(stack));
+      for (j = i; j < Cpu_cnt; j++) {
+         if (a_core == rXv(stat_COR_ID, s_int, j)) {
+            stack[stat_US].result.sl_int += rXv(stat_US, sl_int, j);
+            stack[stat_SY].result.sl_int += rXv(stat_SY, sl_int, j);
+            stack[stat_NI].result.sl_int += rXv(stat_NI, sl_int, j);
+            stack[stat_IL].result.sl_int += rXv(stat_IL, sl_int, j);
+            stack[stat_IO].result.sl_int += rXv(stat_IO, sl_int, j);
+            stack[stat_IR].result.sl_int += rXv(stat_IR, sl_int, j);
+            stack[stat_SI].result.sl_int += rXv(stat_SI, sl_int, j);
+            stack[stat_ST].result.sl_int += rXv(stat_ST, sl_int, j);
+            stack[stat_SUM_USR].result.sl_int += rXv(stat_SUM_USR, sl_int, j);
+            stack[stat_SUM_SYS].result.sl_int += rXv(stat_SUM_SYS, sl_int, j);
+            stack[stat_SUM_TOT].result.sl_int += rXv(stat_SUM_TOT, sl_int, j);
+
+            rXv(stat_COR_ID, s_int, j) = gotTHIS;
+            found = 1;
+         }
+      }
+      if (found) {
+         snprintf(pfx, sizeof(pfx), N_fmt(WORD_core_vs_fmt), a_core);
+         n += sum_tics(&core, pfx, (i+1 >= Cpu_cnt));
+         if (Msg_row + n + 1 >= SCREEN_ROWS - 1)
+            break;
+         found = 0;
+      }
+   }
+   return n;
+ #undef rXv
+ #undef gotTHIS
+} // end: sum_versus
 
 /*######  Secondary summary display support (summary_show helpers)  ######*/
 
@@ -6578,6 +6714,8 @@ numa_oops:
             Msg_row += sum_unify(Stat_reap->cpus->stacks[i], (i+1 >= Cpu_cnt));
             if (noMAS) break;
          }
+      } else if (Curwin->rc.cores_vs_cpus) {
+         Msg_row += sum_versus();
       } else {
          for (i = 0; i < Cpu_cnt; i++) {
 #ifndef CORE_TYPE_NO
@@ -6750,9 +6888,9 @@ static void do_key (int ch) {
          , kbd_CtrlE, kbd_CtrlR, kbd_ENTER, kbd_SPACE, '\0' } },
       { keys_summary,
  #ifdef CORE_TYPE_NO
-         { '!', '1', '2', '3', '4', 'C', 'l', 'm', 't', '\0' } },
+         { '!', '^', '1', '2', '3', '4', 'C', 'l', 'm', 't', '\0' } },
  #else
-         { '!', '1', '2', '3', '4', '5', 'C', 'l', 'm', 't', '\0' } },
+         { '!', '^', '1', '2', '3', '4', '5', 'C', 'l', 'm', 't', '\0' } },
  #endif
       { keys_task,
          { '#', '<', '>', 'b', 'c', 'F', 'i', 'J', 'j', 'n', 'O', 'o'
@@ -7374,18 +7512,7 @@ static void frame_make (void) {
 #endif
    }
 
-   // whoa either first time or thread/task mode change, (re)prime the pump...
-   if (Pseudo_row == PROC_XTRA) {
-      usleep(LIB_USLEEP);
-#ifdef THREADED_TSK
-      sem_wait(&Semaphore_tasks_end);
-      sem_post(&Semaphore_tasks_beg);
-#else
-      tasks_refresh(NULL);
-#endif
-      putp(Cap_clr_scr);
-   } else
-      putp(Batch ? "\n\n" : Cap_home);
+   putp(Batch ? "\n\n" : Cap_home);
 
    Tree_idx = Pseudo_row = Msg_row = scrlins = 0;
    summary_show();
@@ -7445,6 +7572,7 @@ int main (int argc, char *argv[]) {
    whack_terminal();                    //                 > more stuff. <
    wins_stage_2();                      //                 as bottom slice
                                         //                 +-------------+
+   usleep_refresh();
 
    for (;;) {
       struct timespec ts;

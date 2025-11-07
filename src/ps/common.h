@@ -466,6 +466,7 @@ extern int             header_type; /* none, single, multi... */
 extern int             include_dead_children;
 extern int             lines_to_next_header;
 extern char           *lstart_format;
+extern char            delimiter_option;
 extern int             max_line_width;
 extern int             negate_selection;
 extern int             page_size;  // "int" for math reasons?
@@ -500,7 +501,7 @@ extern void reset_sortformat(void);
 
 /* select.c */
 extern int want_this_proc(proc_t *buf);
-extern const char *select_bits_setup(void);
+extern const char *select_setup(void);
 
 /* help.c */
 extern void __attribute__ ((__noreturn__)) do_help(const char *opt, int rc);

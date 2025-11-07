@@ -101,7 +101,7 @@ static unsigned int boot_time(void)
     struct stat_info *stat_info = NULL;
     if (boot_time == 0) {
         if (procps_stat_new(&stat_info) < 0)
-             xerrx(EXIT_FAILURE, _("Unable to get system boot time"));
+             errx(EXIT_FAILURE, _("Unable to get system boot time"));
         boot_time = STAT_GET(stat_info, STAT_SYS_TIME_OF_BOOT, ul_int);
         procps_stat_unref(&stat_info);
     }
@@ -115,7 +115,7 @@ static unsigned long memory_total()
 
     if (memory_total == 0) {
         if (procps_meminfo_new(&mem_info) < 0)
-	        xerrx(EXIT_FAILURE,
+	        errx(EXIT_FAILURE,
                   _("Unable to get total memory"));
        memory_total = MEMINFO_GET(mem_info, MEMINFO_MEM_TOTAL, ul_int);
        procps_meminfo_unref(&mem_info);
@@ -229,6 +229,9 @@ static int escape_str (char *dst, const char *src, int bufsize, int *maxcells) {
   "????????????????????????????????"
   "????????????????????????????????";
   static int utf_init=0;
+
+  if (NULL == src)
+      return 0;
 
   if(utf_init==0){
      /* first call -- check if UTF stuff is usable */
@@ -401,7 +404,7 @@ Modifications to the arguments are not shown.
 #define OUTBUF_SIZE_AT(endp) \
   (((endp) >= outbuf && (endp) < outbuf + OUTBUF_SIZE) ? (outbuf + OUTBUF_SIZE) - (endp) : 0)
 /*
- * Both pr_args and pr_comm almost do the same thing, but CMDLINE or CMD is determined 
+ * Both pr_args and pr_comm almost do the same thing, but CMDLINE or CMD is determined
  * by which function is called, then what flags are set (and they're different for
  * each function). The printing part is identical
  */
@@ -1694,7 +1697,7 @@ static const format_struct format_array[] = { /*
 {"command",   "COMMAND", pr_args,          PIDS_CMDLINE,            27,    XXX,  PO|UNLIMITED}, /*args*/
 {"context",   "CONTEXT", pr_context,       PIDS_ID_TGID,            31,    LNX,  ET|LEFT},
 {"cp",        "CP",      pr_cp,            PIDS_UTILIZATION,         3,    DEC,  ET|RIGHT}, /*cpu*/
-{"cpu",       "CPU",     pr_nop,           PIDS_noop,                3,    BSD,  AN|RIGHT}, /* FIXME ... HP-UX wants this as the CPU number for SMP? */
+{"cpu",       "CPU",     pr_psr,           PIDS_PROCESSOR,           3,    BSD,  TO|RIGHT},
 {"cpuid",     "CPUID",   pr_psr,           PIDS_PROCESSOR,           5,    BSD,  TO|RIGHT}, // OpenBSD: 8 wide!
 {"cputime",   "TIME",    pr_time,          PIDS_TIME_ALL,            8,    DEC,  ET|RIGHT}, /*time*/
 {"cputimes",  "TIME",    pr_times,         PIDS_TIME_ALL,            8,    LNX,  ET|RIGHT}, /*time*/
@@ -2327,7 +2330,8 @@ void show_one_proc(const proc_t *restrict const p, const format_node *restrict f
      * legit     space we were allowed to steal, and thus did steal
      */
     space = correct - actual + leftpad;
-    if(space<1) space=dospace;
+    if (space < 1 || delimiter_option != '\0')
+        space = dospace;
     if(space>SPACE_AMOUNT) space=SPACE_AMOUNT;  // only so much available
 
     /* real size -- don't forget in 'amount' is number of cells */
@@ -2385,7 +2389,7 @@ void init_output(void)
     if(outbuf == MAP_FAILED)
         catastrophic_failure(__FILE__, __LINE__, _("please report this bug"));
 
-    memset(outbuf, ' ', SPACE_AMOUNT);
+    memset(outbuf, (delimiter_option?delimiter_option:' '), SPACE_AMOUNT);
     if(SPACE_AMOUNT==page_size)
 	mprotect(outbuf, page_size, PROT_READ);
     mprotect(outbuf + page_size*outbuf_pages, page_size, PROT_NONE); // guard page

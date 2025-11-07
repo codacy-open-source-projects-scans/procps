@@ -1,7 +1,7 @@
 /*
  * Sysctl - A utility to read and manipulate the sysctl parameters
  *
- * Copyright © 2009-2024 Craig Small <csmall@dropbear.xyz>
+ * Copyright © 2009-2025 Craig Small <csmall@dropbear.xyz>
  * Copyright © 2012-2023 Jim Warner <james.warner@comcast.net>
  * Copyright © 2017-2018 Werner Fink <werner@suse.de>
  * Copyright © 2014      Jaromir Capik <jcapik@redhat.com>
@@ -122,7 +122,7 @@ static inline bool is_proc_path(
 	return true;
     }
 
-    xwarnx(_("Path is not under %s: %s"), PROC_PATH, path);
+    warnx(_("Path is not under %s: %s"), PROC_PATH, path);
     free(resolved_path);
     return false;
 }
@@ -140,7 +140,7 @@ static void slashdot(char *restrict p, char old, char new)
 	while (p) {
 		char c = *p;
 		if ((*(p + 1) == '/' || *(p + 1) == '.') && warned) {
-			xwarnx(_("separators should not be repeated: %s"), p);
+			warnx(_("separators should not be repeated: %s"), p);
 			warned = 0;
 		}
 		if (c == old)
@@ -341,7 +341,7 @@ static int ReadSetting(const char *restrict const name)
 	struct stat ts;
 
 	if (!name || !*name) {
-		xwarnx(_("\"%s\" is an unknown key"), name);
+		warnx(_("\"%s\" is an unknown key"), name);
 		return -1;
 	}
 
@@ -359,7 +359,7 @@ static int ReadSetting(const char *restrict const name)
 
 	if (stat(tmpname, &ts) < 0) {
 		if (!IgnoreError) {
-			xwarn(_("cannot stat %s"), tmpname);
+			warn(_("cannot stat %s"), tmpname);
 			rc = EXIT_FAILURE;
 		}
 		goto out;
@@ -397,19 +397,19 @@ static int ReadSetting(const char *restrict const name)
 		switch (errno) {
 		case ENOENT:
 			if (!IgnoreError) {
-				xwarnx(_("\"%s\" is an unknown key"), outname);
+				warnx(_("\"%s\" is an unknown key"), outname);
 				rc = EXIT_FAILURE;
 			}
 			break;
 		case EACCES:
-			xwarnx(_("permission denied on key '%s'"), outname);
+			warnx(_("permission denied on key '%s'"), outname);
 			rc = EXIT_FAILURE;
 			break;
 		case EIO:	    /* Ignore stable_secret below /proc/sys/net/ipv6/conf */
 			rc = EXIT_FAILURE;
 			break;
 		default:
-			xwarn(_("reading key \"%s\""), outname);
+			warn(_("reading key \"%s\""), outname);
 			rc = EXIT_FAILURE;
 			break;
 		}
@@ -444,7 +444,7 @@ static int ReadSetting(const char *restrict const name)
 		} else {
 			switch (errno) {
 			case EACCES:
-				xwarnx(_("permission denied on key '%s'"),
+				warnx(_("permission denied on key '%s'"),
 				       outname);
 				rc = EXIT_FAILURE;
 				break;
@@ -461,7 +461,7 @@ static int ReadSetting(const char *restrict const name)
 				rc = EXIT_FAILURE;
 				break;
 			default:
-				xwarnx(_("reading key \"%s\""), outname);
+				warnx(_("reading key \"%s\""), outname);
 				rc = EXIT_FAILURE;
 			case 0:
 				break;
@@ -509,7 +509,7 @@ static int DisplayAll(const char *restrict const path)
 	dp = opendir(path);
 
 	if (!dp) {
-		xwarnx(_("unable to open directory \"%s\""), path);
+		warnx(_("unable to open directory \"%s\""), path);
 		rc = EXIT_FAILURE;
 	} else {
 		readdir(dp);	/* skip .  */
@@ -527,7 +527,7 @@ static int DisplayAll(const char *restrict const path)
 			sprintf(tmpdir, "%s%s", path, de->d_name);
 			rc2 = stat(tmpdir, &ts);
 			if (rc2 != 0) {
-				xwarn(_("cannot stat %s"), tmpdir);
+				warn(_("cannot stat %s"), tmpdir);
 			} else {
 				if (S_ISDIR(ts.st_mode)) {
 					strcat(tmpdir, "/");
@@ -564,7 +564,7 @@ static int WriteSetting(
 
     if (stat(path, &ts) < 0) {
         if (!IgnoreError) {
-            xwarn(_("cannot stat %s"), path);
+            warn(_("cannot stat %s"), path);
             rc = EXIT_FAILURE;
         }
         return rc;
@@ -576,23 +576,23 @@ static int WriteSetting(
 
     /* Convert the globbed path into a dotted key */
     if ( (dotted_key = strdup(path + strlen(PROC_PATH))) == NULL) {
-	xerrx(EXIT_FAILURE, _("strdup key"));
+	errx(EXIT_FAILURE, _("strdup key"));
 	return EXIT_FAILURE;
     }
     slashdot(dotted_key, '/', '.');
 
     if ((ts.st_mode & S_IWUSR) == 0) {
         errno = EPERM;
-        xwarn(_("setting key \"%s\""), dotted_key);
+        warn(_("setting key \"%s\""), dotted_key);
 	free(dotted_key);
-        return rc;
+        return EXIT_FAILURE;
     }
 
     if (S_ISDIR(ts.st_mode)) {
         errno = EISDIR;
-        xwarn(_("setting key \"%s\""), dotted_key);
+        warn(_("setting key \"%s\""), dotted_key);
 	free(dotted_key);
-        return rc;
+        return EXIT_FAILURE;
     }
 
     if (!DryRun) {
@@ -600,7 +600,7 @@ static int WriteSetting(
             switch (errno) {
             case ENOENT:
                 if (!IgnoreError) {
-                    xwarnx(_("\"%s\" is an unknown key%s"),
+                    warnx(_("\"%s\" is an unknown key%s"),
                            dotted_key, (ignore_failure?_(", ignoring"):""));
                     if (!ignore_failure)
                         rc = EXIT_FAILURE;
@@ -609,11 +609,11 @@ static int WriteSetting(
             case EPERM:
             case EROFS:
             case EACCES:
-                xwarnx(_("permission denied on key \"%s\"%s"),
+                warnx(_("permission denied on key \"%s\"%s"),
                        dotted_key, (ignore_failure?_(", ignoring"):""));
                 break;
             default:
-                xwarn(_("setting key \"%s\"%s"),
+                warn(_("setting key \"%s\"%s"),
                       dotted_key, (ignore_failure?_(", ignoring"):""));
                 break;
             }
@@ -623,7 +623,7 @@ static int WriteSetting(
             if (0 < fprintf(fp, "%s\n", value))
                 rc = EXIT_SUCCESS;
             if (close_stream(fp) != 0) {
-                xwarn(_("setting key \"%s\""), dotted_key);
+                warn(_("setting key \"%s\""), dotted_key);
 		free(dotted_key);
                 return EXIT_FAILURE;
             }
@@ -689,7 +689,7 @@ static SysctlSetting *parse_setting_line(
             value = NULL;
             rstrip(key);
         } else {
-            xwarnx(_("%s(%d): invalid syntax, continuing..."),
+            warnx(_("%s(%d): invalid syntax, continuing..."),
                    path, linenum);
             return NULL;
         }
@@ -726,7 +726,7 @@ static int write_setting_list(const SettingList *sl)
             if (glob(node->path, 0, NULL, &globbuf) != 0)
                 continue;
 
-            for(i=0; i < globbuf.gl_pathc; i++) {
+            for(i=0; i < (int)globbuf.gl_pathc; i++) {
                 if (settinglist_findpath(sl, globbuf.gl_pathv[i]))
                     continue; // override or exclude
 
@@ -781,19 +781,19 @@ static int Preload(SettingList *setlist, const char *restrict const filename)
 	globflg |= GLOB_TILDE;
 #else
 	if (filename[0] == '~')
-		xwarnx(_("GLOB_TILDE is not supported on your platform, "
+		warnx(_("GLOB_TILDE is not supported on your platform, "
 			 "the tilde in \"%s\" won't be expanded."), filename);
 #endif
 	globerr = glob(filename, globflg, NULL, &globbuf);
 
 	if (globerr != 0 && globerr != GLOB_NOMATCH)
-		xerr(EXIT_FAILURE, _("glob failed"));
+		err(EXIT_FAILURE, _("glob failed"));
 
-	for (j = 0; j < globbuf.gl_pathc; j++) {
+	for (j = 0; j < (int)globbuf.gl_pathc; j++) {
 		fp = (globbuf.gl_pathv[j][0] == '-' && !globbuf.gl_pathv[j][1])
 		    ? stdin : fopen(globbuf.gl_pathv[j], "r");
 		if (!fp) {
-			xwarn(_("cannot open \"%s\""), globbuf.gl_pathv[j]);
+			warn(_("cannot open \"%s\""), globbuf.gl_pathv[j]);
             return EXIT_FAILURE;
 		}
 
@@ -887,7 +887,7 @@ static int PreloadSystem(SettingList *setlist)
 					de->d_name);
 				ncfgs++;
 			} else {
-				xerrx(EXIT_FAILURE, _("internal error"));
+				errx(EXIT_FAILURE, _("internal error"));
 			}
 
 		}
@@ -925,9 +925,9 @@ int main(int argc, char *argv[])
 	bool WriteMode = false;
 	bool DisplayAllOpt = false;
 	bool preloadfileOpt = false;
+        bool SystemOpt = false;
 	int ReturnCode = 0;
 	int c;
-	int rc = 0;
 	const char *preloadfile = NULL;
     SettingList *setlist;
 
@@ -1023,9 +1023,8 @@ int main(int argc, char *argv[])
 			break;
 		case SYSTEM_OPTION:
 			IgnoreError = true;
-			rc |= PreloadSystem(setlist);
-            rc |= write_setting_list(setlist);
-            return rc;
+                        SystemOpt = true;
+                        break;
         case DRYRUN_OPTION:
             DryRun = true;
             break;
@@ -1067,14 +1066,19 @@ int main(int argc, char *argv[])
 			ret |= Preload(setlist, argv[i]);
         ret |= write_setting_list(setlist);
 		return ret;
-	}
+	} else if (SystemOpt) {
+            ReturnCode |= PreloadSystem(setlist);
+            ReturnCode |= write_setting_list(setlist);
+            if (argc < 1)
+                return ReturnCode;
+        }
 
 	if (argc < 1)
-		xerrx(EXIT_FAILURE, _("no variables specified\n"
+		errx(EXIT_FAILURE, _("no variables specified\n"
 				      "Try `%s --help' for more information."),
 		      program_invocation_short_name);
 	if (NameOnly && Quiet)
-		xerrx(EXIT_FAILURE, _("options -N and -q cannot coexist\n"
+		errx(EXIT_FAILURE, _("options -N and -q cannot coexist\n"
 				      "Try `%s --help' for more information."),
 		      program_invocation_short_name);
 

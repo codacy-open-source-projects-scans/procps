@@ -303,17 +303,15 @@ static void simple_spew(void){
       pidlist[i] = selection_list->u[selection_list->n-i-1].pid;
     which = (thread_flags & (TF_loose_tasks|TF_show_task))
       ? PIDS_SELECT_PID_THREADS : PIDS_SELECT_PID;
-    pidread = procps_pids_select(Pids_info, pidlist, selection_list->n, which);
+    if ((pidread = procps_pids_select(Pids_info, pidlist, selection_list->n, which)) == NULL)
+        err(EXIT_FAILURE, _("Fatal library error, unable to select pids"));
     free(pidlist);
   } else {
     enum pids_fetch_type which;
     which = (thread_flags & (TF_loose_tasks|TF_show_task))
       ? PIDS_FETCH_THREADS_TOO : PIDS_FETCH_TASKS_ONLY;
-    pidread = procps_pids_reap(Pids_info, which);
-  }
-  if (!pidread) {
-    fprintf(stderr, _("fatal library error, reap\n"));
-    exit(EXIT_FAILURE);
+    if ((pidread = procps_pids_reap(Pids_info, which)) == NULL)
+        err(EXIT_FAILURE, _("Fatal library error, unable to reap pids"));
   }
 
   switch(thread_flags & (TF_show_proc|TF_loose_tasks|TF_show_task)){
@@ -395,54 +393,56 @@ static void show_proc_array(int n){
 }
 
 /***** show tree */
-/* this needs some optimization work */
-#define ADOPTED(x) 1
 
 #define IS_LEVEL_SAFE(level) \
   ((level) >= 0 && (size_t)(level) < sizeof(forest_prefix))
 
-static void show_tree(const int self, const int n, const int level, const int have_sibling){
-  int i = 0;
-
-  if(!IS_LEVEL_SAFE(level))
-    catastrophic_failure(__FILE__, __LINE__, _("please report this bug"));
-
-  if(level){
-    /* add prefix of "+" or "L" */
-    if(have_sibling) forest_prefix[level-1] = '+';
-    else             forest_prefix[level-1] = 'L';
-  }
-  forest_prefix[level] = '\0';
-  show_one_proc(processes[self],format_list);  /* first show self */
-  for(;;){  /* look for children */
-    if(i >= n) return; /* no children */
-    if(rSv(ID_PPID, s_int, processes[i]) == rSv(ID_PID, s_int, processes[self])) break;
-    i++;
-  }
-  if(level){
-    /* change our prefix to "|" or " " for the children */
-    if(have_sibling) forest_prefix[level-1] = '|';
-    else             forest_prefix[level-1] = ' ';
-  }
-  forest_prefix[level] = '\0';
-  for(;;){
+static void show_tree(
+    const int self,
+    const int n,
+    const int level,
+    const int have_sibling)
+{
+    int i = 0;
     int self_pid;
-    int more_children = 1;
-    if(i >= n) break; /* over the edge */
+    bool more_children;
+
+    if(!IS_LEVEL_SAFE(level))
+        catastrophic_failure(__FILE__, __LINE__, _("please report this bug"));
+
     self_pid=rSv(ID_PID, s_int, processes[self]);
-    if(i+1 >= n)
-      more_children = 0;
-    else
-      if(rSv(ID_PPID, s_int, processes[i+1]) != self_pid) more_children = 0;
-    if(self_pid==1 && ADOPTED(processes[i]) && forest_type!='u')
-      show_tree(i++, n, level, more_children);
-    else
-      show_tree(i++, n, IS_LEVEL_SAFE(level+1) ? level+1 : level, more_children);
-    if(!more_children) break;
-  }
-  /* chop prefix that children added -- do we need this? */
-  /* chop prefix that children added */
-  forest_prefix[level] = '\0';
+    if (level) {
+        /* add prefix of "+" or "L" */
+        if(have_sibling)
+            forest_prefix[level-1] = '+';
+        else
+            forest_prefix[level-1] = 'L';
+    }
+    forest_prefix[level] = '\0';
+    show_one_proc(processes[self],format_list);  /* first show self */
+    /* look for children */
+    for(i=0; ; i++) {
+        if ( i >= n )
+            return; /* no children */
+        if (rSv(ID_PPID, s_int, processes[i]) == rSv(ID_PID, s_int, processes[self]))
+            break;
+    }
+    if (level) {
+        /* change our prefix to "|" or " " for the children */
+        if (have_sibling)
+            forest_prefix[level-1] = '|';
+        else
+            forest_prefix[level-1] = ' ';
+    }
+    forest_prefix[level] = '\0';
+    for (more_children = 1; more_children==1 && i<n; i++) {
+        if (i+1 >= n
+            || (rSv(ID_PPID, s_int, processes[i+1]) != self_pid))
+            more_children = 0;
+        show_tree( i, n, IS_LEVEL_SAFE(level+1) ? level+1 : level, more_children);
+    }
+    /* chop prefix that children added */
+    forest_prefix[level] = '\0';
 }
 
 #undef IS_LEVEL_SAFE

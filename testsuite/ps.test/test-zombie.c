@@ -43,8 +43,10 @@ int main(int argc, const char *argv[])
                 sleep(30);
     }
     return (EXIT_SUCCESS);
+    (void)argc;
+    (void)argv;
 }
-            
+
 
 
 

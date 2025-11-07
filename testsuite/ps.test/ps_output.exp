@@ -70,7 +70,25 @@ expect_pass "$test" "\\s*COMMAND\\s+puc\\s+"
 
 set test "ps with l and m options"
 spawn $ps -lm
+expect_spawn_retval "$test" 0
 expect_fail "$test" "please report this bug"
+
+set test "ps with invalid -a and g options"
+spawn $ps -a g
+expect_spawn_retval "$test" 1
+expect_pass "$test" "error: process selection options conflict"
+
+set test "ps -a has no session leaders"
+spawn $ps -a -o pid,sid
+expect_fail "$test" "***:\[\[:<:\]\]\\s*(\\d+)\\s+\\1\[\[:>:\]\]"
+
+set test "ps -d has no session leaders"
+spawn $ps -d -o pid,sid
+expect_fail "$test" "***:\[\[:<:\]\]\\s*(\\d+)\\s+\\1\[\[:>:\]\]"
+
+set test "ps -ad has no session leaders"
+spawn $ps -ad -o pid,sid
+expect_fail "$test" "***:\[\[:<:\]\]\\s*(\\d+)\\s+\\1\[\[:>:\]\]"
 
 # The remaining tests require a test process
 make_testproc
@@ -83,6 +101,10 @@ set test "ps with fds output"
 set fd_count [ exec stat -c %s /proc/$testproc1_pid/fd ]
 spawn $ps -o fds $testproc1_pid
 expect_pass "$test" "^FDS\\s+$fd_count\\s*$"
+
+set test "ps with delimiter"
+spawn $ps -o pid,ucmd --delimiter : $testproc1_pid
+expect_pass "$test" "PID:CMD\\s+$testproc1_pid:spcorp\\s*$"
 
 # End of test process
 kill_testproc

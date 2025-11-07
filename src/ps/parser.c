@@ -33,6 +33,8 @@
 #include <string.h>
 #include <unistd.h>
 #include <stdbool.h>
+#include <ctype.h>
+#include <wctype.h>
 
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -809,6 +811,7 @@ static const char *parse_gnu_option(void){
   {"context",       &&case_context},
   {"cumulative",    &&case_cumulative},
   {"date-format",   &&case_dateformat},
+  {"delimiter",     &&case_delimiter},
   {"deselect",      &&case_deselect},    /* -N */
   {"forest",        &&case_forest},      /* f -H */
   {"format",        &&case_format},
@@ -902,6 +905,12 @@ static const char *parse_gnu_option(void){
     if (!arg) return _("date format must follow --date-format");
     if (lstart_format) free(lstart_format);
     lstart_format = xstrdup(arg);
+    return NULL;
+  case_delimiter:
+    arg=grab_gnu_arg();
+    if (!arg) return _("delimiter character must follow --delimiter");
+    if (arg[1] != '\0') return _("delimiter must be a single character");
+    delimiter_option = arg[0];
     return NULL;
   case_deselect:
     trace("--deselect\n");
@@ -1106,23 +1115,24 @@ static void reset_parser(void){
   w_count = 0;
 }
 
-static int arg_type(const char *str){
-  int tmp = str[0];
-  if((tmp>='a') && (tmp<='z'))   return ARG_BSD;
-  if((tmp>='A') && (tmp<='Z'))   return ARG_BSD;
-  if((tmp>='0') && (tmp<='9'))   return ARG_PID;
-  if(tmp=='+')                   return ARG_SESS;
-  if(tmp!='-')                   return ARG_FAIL;
-  tmp = str[1];
-  if((tmp>='a') && (tmp<='z'))   return ARG_SYSV;
-  if((tmp>='A') && (tmp<='Z'))   return ARG_SYSV;
-  if((tmp>='0') && (tmp<='9'))   return ARG_PGRP;
-  if(tmp!='-')                   return ARG_FAIL;
-  tmp = str[2];
-  if((tmp>='a') && (tmp<='z'))   return ARG_GNU;
-  if((tmp>='A') && (tmp<='Z'))   return ARG_GNU;
-  if(tmp=='\0')                  return ARG_END;
-  return ARG_FAIL;
+static int arg_type(const char *str)
+{
+    wchar_t wtmp[2];
+
+    if (isalpha(str[0]))        return ARG_BSD;
+    if (isdigit(str[0]))        return ARG_PID;
+    if (str[0] == '+')          return ARG_SESS;
+    if (str[0] != '-')          return ARG_FAIL;
+
+    if (isalpha(str[1]))        return ARG_SYSV;
+    if (isdigit(str[1]))        return ARG_PGRP;
+    if (str[1] != '-')          return ARG_FAIL;
+
+    if (isalpha(str[2]))        return ARG_GNU;
+    if (str[2] == '\0')         return ARG_END;
+    if (mbstowcs(wtmp, str+2, 1) == 1
+         && iswalpha(wtmp[0]))  return ARG_GNU;
+    return ARG_FAIL;
 }
 
 /* First assume sysv, because that is the POSIX and Unix98 standard. */
@@ -1225,7 +1235,7 @@ int arg_parse(int argc, char *argv[]){
   if(err) goto try_bsd;
   err = process_sf_options();
   if(err) goto try_bsd;
-  err = select_bits_setup();
+  err = select_setup();
   if(err) goto try_bsd;
 
   choose_dimensions();
@@ -1254,7 +1264,7 @@ try_bsd:
   if(err2) goto total_failure;
   err2 = process_sf_options();
   if(err2) goto total_failure;
-  err2 = select_bits_setup();
+  err2 = select_setup();
   if(err2) goto total_failure;
 
   choose_dimensions();
