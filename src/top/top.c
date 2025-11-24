@@ -4028,15 +4028,33 @@ end_oops:
         /*
          * A configs_file *Helper* function responsible for reading
          * and validating a single window's portion of the rcfile */
-static int config_wins (FILE *fp, char *buf, int wix) {
+static int config_wins (FILE *fp, int wix) {
+#ifdef WINS_RCF_TBL
+ // the following sizeof includes the '\0', but we'll pretend it's the '='
+ #define mkITEM(x) MKSTR(x) "=", sizeof(MKSTR(x)), offsetof(RCW_t, x)
+   static struct {
+      const char *str;
+      unsigned len;
+      unsigned ofs;
+   } itemtab[] = {
+      { mkITEM(winflags) },     { mkITEM(sortindx) },   { mkITEM(maxtasks) },
+      { mkITEM(graph_cpus) },   { mkITEM(graph_mems) }, { mkITEM(double_up) },
+      { mkITEM(combine_cpus) }, { mkITEM(summclr) },    { mkITEM(msgsclr) },
+      { mkITEM(headclr) },      { mkITEM(taskclr) },    { mkITEM(task_xy) },
+      { mkITEM(core_types) },   { mkITEM(cores_vs_cpus) }
+   };
+   char buf2[MEDBUFSIZ], *p;
+#endif
    static const char *def_flds[] = { DEF_FORMER, JOB_FORMER, MEM_FORMER, USR_FORMER };
-   WIN_t *w =  &Winstk[wix];
+   char buf[MEDBUFSIZ];
+   WIN_t *w;
    int x;
 
+   w =  &Winstk[wix];
    if (1 != fscanf(fp, "%3s\tfieldscur=", w->rc.winname))
       return 0;
    if (Rc.id < RCF_XFORMED_ID) {
-      fscanf(fp, "%100s\n", buf );               // buf size = LRGBUFSIZ (512)
+      fscanf(fp, "%100s\n", buf );               // buffer is actually 256 big
       if (strlen(buf) >= sizeof(CVT_FORMER))     // but if we exceed max of 86
          return 0;                               // that rc file was corrupted
    } else {
@@ -4045,12 +4063,44 @@ static int config_wins (FILE *fp, char *buf, int wix) {
             break;
    }
 
-   // be tolerant of missing release 3.3.10 graph modes additions
-   if (3 > fscanf(fp, "\twinflags=%d, sortindx=%d, maxtasks=%d, graph_cpus=%d, graph_mems=%d"
-                      ", double_up=%d, combine_cpus=%d, core_types=%d, cores_vs_cpus=%d\n"
-      , &w->rc.winflags, &w->rc.sortindx, &w->rc.maxtasks, &w->rc.graph_cpus, &w->rc.graph_mems
-      , &w->rc.double_up, &w->rc.combine_cpus, &w->rc.core_types, &w->rc.cores_vs_cpus))
-         return 0;
+#ifdef WINS_RCF_TBL
+   /* with 'core_types' having moved to the 2nd line of a window's variables
+      portion of the rcfile (along with 'cores_vs_cpus'), we must treat both
+      of those lines as a single glob so as to honor the older config files.
+      thus, the variables order on these two lines now is of no consequence! */
+   fgets(buf2, sizeof(buf2), fp);
+   x = strlen(buf2);
+   fgets(buf2 + x, sizeof(buf2) - x, fp);
+   for (x = 0; x < MAXTBL(itemtab); x++) {
+      if ((p = strstr(buf2, itemtab[x].str)))
+         if (1 != sscanf(p + itemtab[x].len, "%d", (int *)((void *)&w->rc + itemtab[x].ofs)))
+            return 0;
+   }
+#else
+   // be tolerant of missing release 3.3.10 graph modes additions (and relocations)
+   if (Rc.id < 'n') {
+      if (3 > fscanf(fp, "\twinflags=%d, sortindx=%d, maxtasks=%d, graph_cpus=%d, graph_mems=%d"
+                         ", double_up=%d, combine_cpus=%d, core_types=%d, cores_vs_cpus=%d\n"
+         , &w->rc.winflags, &w->rc.sortindx, &w->rc.maxtasks, &w->rc.graph_cpus, &w->rc.graph_mems
+         , &w->rc.double_up, &w->rc.combine_cpus, &w->rc.core_types, &w->rc.cores_vs_cpus))
+            return 0;
+      if (4 > fscanf(fp, "\tsummclr=%d, msgsclr=%d, headclr=%d, taskclr=%d, task_xy=%d\n"
+         , &w->rc.summclr, &w->rc.msgsclr, &w->rc.headclr, &w->rc.taskclr, &w->rc.task_xy))
+            return 0;
+   } else {
+      if (7 > fscanf(fp, "\twinflags=%d, sortindx=%d, maxtasks=%d, graph_cpus=%d, graph_mems=%d"
+                         ", double_up=%d, combine_cpus=%d\n"
+         , &w->rc.winflags, &w->rc.sortindx, &w->rc.maxtasks, &w->rc.graph_cpus, &w->rc.graph_mems
+         , &w->rc.double_up, &w->rc.combine_cpus))
+            return 0;
+      if (7 > fscanf(fp, "\tsummclr=%d, msgsclr=%d, headclr=%d, taskclr=%d, task_xy=%d"
+                         ", core_types=%d, cores_vs_cpus=%d\n"
+         , &w->rc.summclr, &w->rc.msgsclr, &w->rc.headclr, &w->rc.taskclr, &w->rc.task_xy
+         , &w->rc.core_types, &w->rc.cores_vs_cpus))
+            return 0;
+   }
+#endif
+
    if (w->rc.sortindx < 0 || w->rc.sortindx >= EU_MAXPFLGS)
       return 0;
    if (w->rc.maxtasks < 0)
@@ -4069,10 +4119,6 @@ static int config_wins (FILE *fp, char *buf, int wix) {
    if (w->rc.cores_vs_cpus < 0 || w->rc.cores_vs_cpus > 1)
       return 0;
 
-   // 4 colors through release 4.0.4, 5 colors after ...
-   if (4 > fscanf(fp, "\tsummclr=%d, msgsclr=%d, headclr=%d, taskclr=%d, task_xy=%d\n"
-      , &w->rc.summclr, &w->rc.msgsclr, &w->rc.headclr, &w->rc.taskclr, &w->rc.task_xy))
-         return 0;
    // would prefer to use 'max_colors', but it isn't available yet...
    if (w->rc.summclr < -1 || w->rc.summclr > 255) return 0;
    if (w->rc.msgsclr < -1 || w->rc.msgsclr > 255) return 0;
@@ -4134,6 +4180,9 @@ static int config_wins (FILE *fp, char *buf, int wix) {
          return 0;
    }
    return 1;
+#ifdef WINS_RCF_TBL
+ #undef mkITEM
+#endif
 } // end: config_wins
 
 
@@ -4170,7 +4219,7 @@ static const char *configs_file (FILE *fp, const char *name, float *delay) {
    *delay = (float)tmp_whole + (float)tmp_fract / 1000;
 
    for (i = 0 ; i < GROUPSMAX; i++)
-      if (!config_wins(fp, fbuf, i))
+      if (!config_wins(fp, i))
          return fmtmk(N_fmt(RC_bad_entry_fmt), i+1, name);
 
    // any new addition(s) last, for older rcfiles compatibility...
@@ -5627,13 +5676,15 @@ static void write_rcfile (void) {
       }
       fprintf(fp, "\n");
       fprintf(fp, "\twinflags=%d, sortindx=%d, maxtasks=%d, graph_cpus=%d, graph_mems=%d"
-                  ", double_up=%d, combine_cpus=%d, core_types=%d, cores_vs_cpus=%d\n"
+                  ", double_up=%d, combine_cpus=%d\n"
          , Winstk[i].rc.winflags, Winstk[i].rc.sortindx, Winstk[i].rc.maxtasks
          , Winstk[i].rc.graph_cpus, Winstk[i].rc.graph_mems, Winstk[i].rc.double_up
-         , Winstk[i].rc.combine_cpus, Winstk[i].rc.core_types, Winstk[i].rc.cores_vs_cpus);
-      fprintf(fp, "\tsummclr=%d, msgsclr=%d, headclr=%d, taskclr=%d, task_xy=%d\n"
+         , Winstk[i].rc.combine_cpus);
+      fprintf(fp, "\tsummclr=%d, msgsclr=%d, headclr=%d, taskclr=%d, task_xy=%d"
+                  ", core_types=%d, cores_vs_cpus=%d\n"
          , Winstk[i].rc.summclr, Winstk[i].rc.msgsclr
-         , Winstk[i].rc.headclr, Winstk[i].rc.taskclr, Winstk[i].rc.task_xy);
+         , Winstk[i].rc.headclr, Winstk[i].rc.taskclr, Winstk[i].rc.task_xy
+         , Winstk[i].rc.core_types, Winstk[i].rc.cores_vs_cpus);
    }
 
    // any new addition(s) last, for older rcfiles compatibility...
