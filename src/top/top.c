@@ -565,12 +565,6 @@ static void bye_bye (const char *str) {
       fputs(str, stderr);
       exit(EXIT_FAILURE);
    }
-   /* this could happen when called from several places |
-      including that sig_endpgm().  thus we must use an |
-      async-signal-safe write function just in case ... |
-      (thanks: Shaohua Zhan shaohua.zhan@windriver.com) | */
-   if (Batch)
-      write(fileno(stdout), "\n", sizeof("\n") - 1);
 
    exit(EXIT_SUCCESS);
 } // end: bye_bye
@@ -637,27 +631,32 @@ static void sig_endpgm (int dont_care_sig) {
          *    SIGTSTP, SIGTTIN and SIGTTOU */
 static void sig_paused (int dont_care_sig) {
 // POSIX.1 async-signal-safe: tcsetattr, tcdrain, raise
-   if (-1 == tcsetattr(STDIN_FILENO, TCSAFLUSH, &Tty_original))
-      error_exit(fmtmk(N_fmt(FAIL_tty_set_fmt), strerror(errno)));
-   if (keypad_local) putp(keypad_local);
-   putp(tg2(0, Screen_rows));
-   putp(Cap_curs_norm);
+   if (!Batch) {
+      if (-1 == tcsetattr(STDIN_FILENO, TCSAFLUSH, &Tty_original))
+         error_exit(fmtmk(N_fmt(FAIL_tty_set_fmt), strerror(errno)));
+      if (keypad_local) putp(keypad_local);
+      putp(tg2(0, Screen_rows));
+      putp(Cap_curs_norm);
 #ifndef RMAN_IGNORED
-   putp(Cap_smam);
+      putp(Cap_smam);
 #endif
-   // tcdrain(STDOUT_FILENO) was not reliable prior to ncurses-5.9.20121017,
-   // so we'll risk POSIX's wrath with good ol' fflush, lest 'Stopped' gets
-   // co-mingled with our most recent output...
-   fflush(stdout);
+      // tcdrain(STDOUT_FILENO) was not reliable prior to ncurses-5.9.20121017,
+      // so we'll risk POSIX's wrath with good ol' fflush, lest 'Stopped' gets
+      // co-mingled with our most recent output...
+      fflush(stdout);
+   }
    raise(SIGSTOP);
+
    // later, after SIGCONT...
-   if (-1 == tcsetattr(STDIN_FILENO, TCSAFLUSH, &Tty_raw))
-      error_exit(fmtmk(N_fmt(FAIL_tty_set_fmt), strerror(errno)));
+   if (!Batch) {
+      if (-1 == tcsetattr(STDIN_FILENO, TCSAFLUSH, &Tty_raw))
+         error_exit(fmtmk(N_fmt(FAIL_tty_set_fmt), strerror(errno)));
 #ifndef RMAN_IGNORED
-   putp(Cap_rmam);
+      putp(Cap_rmam);
 #endif
-   if (keypad_xmit) putp(keypad_xmit);
-   putp(Cursor_state);
+      if (keypad_xmit) putp(keypad_xmit);
+      putp(Cursor_state);
+   }
    Frames_signal = BREAK_sig;
    (void)dont_care_sig;
 } // end: sig_paused
@@ -3759,13 +3758,12 @@ static void before (char *me) {
       error_exit(fmtmk(N_fmt(LIB_errorpid_fmt), __LINE__, strerror(-rc)));
 
 #if defined THREADED_CPU || defined THREADED_MEM || defined THREADED_TSK
-{  struct sigaction sa;
+   struct sigaction sa;
    Thread_id_main = pthread_self();
    /* in case any of our threads have been enabled, they'll inherit this mask
       with everything blocked. therefore, signals go to the main thread (us). */
    sigfillset(&sa.sa_mask);
    pthread_sigmask(SIG_BLOCK, &sa.sa_mask, NULL);
-}
 #endif
 
 #ifdef THREADED_CPU
@@ -3791,6 +3789,11 @@ static void before (char *me) {
    if (0 != pthread_create(&Thread_id_tasks, NULL, tasks_refresh, NULL))
       error_exit(fmtmk(N_fmt(X_THREADINGS_fmt), __LINE__, strerror(errno)));
    pthread_setname_np(Thread_id_tasks, "update tasks");
+#endif
+
+#if defined THREADED_CPU || defined THREADED_MEM || defined THREADED_TSK
+   // now that theads are created, re-enable signals for main thread ...
+   pthread_sigmask(SIG_UNBLOCK, &sa.sa_mask, NULL);
 #endif
 
    // lastly, establish support for graphing cpus & memory
@@ -7563,7 +7566,7 @@ static void frame_make (void) {
 #endif
    }
 
-   putp(Batch ? "\n\n" : Cap_home);
+   if (!Batch) putp(Cap_home);
 
    Tree_idx = Pseudo_row = Msg_row = scrlins = 0;
    summary_show();
@@ -7587,18 +7590,21 @@ static void frame_make (void) {
       }
    }
 
-   /* clear to end-of-screen - critical if last window is 'idleps off'
-      (main loop must iterate such that we're always called before sleep) */
-   if (!Batch && scrlins < Max_lines) {
-      if (!BOT_PRESENT)
-         putp(Cap_nl_clreos);
-      else {
-         for (i = scrlins + Msg_row + 1; i < SCREEN_ROWS; i++) {
-            putp(tg2(0, i));
-            putp(Cap_clr_eol);
+   if (Batch) putp("\n\n");
+   else {
+      /* clear to end-of-screen - critical if last window is 'idleps off'
+         (main loop must iterate such that we're always called before sleep) */
+      if (scrlins < Max_lines) {
+         if (!BOT_PRESENT)
+            putp(Cap_nl_clreos);
+         else {
+            for (i = scrlins + Msg_row + 1; i < SCREEN_ROWS; i++) {
+               putp(tg2(0, i));
+               putp(Cap_clr_eol);
+            }
          }
+         PSU_CLREOS(Pseudo_row);
       }
-      PSU_CLREOS(Pseudo_row);
    }
 
    if (CHKw(w, View_SCROLL) && VIZISw(Curwin)) show_scroll();
