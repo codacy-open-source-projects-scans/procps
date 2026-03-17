@@ -52,6 +52,16 @@ proc expect_pass { testname reg } {
     }
 }
 
+proc is_spawn_id_dead {sid} {
+    if {[catch {send -i $sid "\n"} err]} {
+        # Catch true means a dead spawn id
+        return 1
+    } else {
+        # Catch is false means send was ok
+        return 0
+    }
+}
+
 # Fail if we see this message, pass if we get to EOF
 proc expect_fail { testname reg } {
     expect {
@@ -64,6 +74,10 @@ proc expect_fail { testname reg } {
 proc expect_pipeproc_pass { testname reg } {
     global pipeproc_spawnid
 
+    if {[is_spawn_id_dead $pipeproc_spawnid]} {
+        fail "$testname (pipe process spawn id invalid)"
+        return
+    }
     expect {
 	-i $pipeproc_spawnid
         -re "$reg" { pass "$testname" }
@@ -154,6 +168,12 @@ proc expect_table_dsc { test match_header match_item } {
 }
 
 proc expect_spawn_retval { test retval } {
+    # Check for spawn life
+    if {[ catch { send "\n" } err]} {
+        unsupported "$test (cannot check return value)"
+        return
+    }
+    # Need to wait for EOF to stop race condition
     foreach {pid spawnid os_error_flag value x y} [wait] break
 
     if {$y != "" } {
@@ -219,7 +239,7 @@ proc make_testproc {args} {
 }
 
 proc make_testshm_proc { } {
-    global testshmproc_pid testshm_spawnid topdir shmid
+    global testshmproc_pid testshm_spawnid topdir shmid shmaddr
 
     set testshm_realpath "${topdir}/src/tests/test_shm"
 
@@ -227,7 +247,16 @@ proc make_testshm_proc { } {
     set testshmproc_spawnid $spawn_id
     expect {
 	-i $testshmproc_spawnid
-	-re "^SHMID: (\[0-9a-f\]+)" { set shmid $expect_out(1,string) }
+	-re "^SHMID: (\[0-9a-f\]+)" {
+	    set shmid $expect_out(1,string)
+            expect {
+		-i $testshmproc_spawnid
+		-re "SHMADDR: 0x(\[0-9a-f\]+)" {
+		    set shmaddr $expect_out(1,string)
+		}
+		default { set shmaddr "" }
+	    }
+	}
 	default { set shmid "" }
     }
 
